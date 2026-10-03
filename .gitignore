@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtual environments
+venv/
+.venv/
+
+# Data
+data/*.csv
+
+# Trained models
+models/*.pkl
+
+# Temporary inspection scripts
+check_components.py
+check_cycles.py
+inspect_data.py
