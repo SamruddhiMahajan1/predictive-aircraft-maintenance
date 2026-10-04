@@ -1,0 +1,16 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+seed_reconciliation.log
+app/static/models/*.glb
+.ruff_cache/
+report.xml
+
+# trained artifacts are produced by Model_training_249.ipynb and staged here;
+# never commit a 900 KB booster (see docs/08 §4, docs/14 §6)
+data/ml/

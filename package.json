@@ -1,0 +1,21 @@
+{
+  "name": "fleet-digital-twin",
+  "version": "6.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Fleet digital twin: 3D aircraft inspector, health dashboard and maintenance plan (React + Vite + three.js).",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "0.128.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^5.4.11"
+  }
+}

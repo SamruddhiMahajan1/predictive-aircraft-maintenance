@@ -1,0 +1,44 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: fdt-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-fdt}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-fdt}
+      POSTGRES_DB: ${POSTGRES_DB:-fdt}
+    volumes:
+      - fdt-db:/var/lib/postgresql/data
+    ports: ["5433:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fdt} -d ${POSTGRES_DB:-fdt}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+  api:
+    build: { context: ., dockerfile: Dockerfile }
+    container_name: fdt-api
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      FDT_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fdt}:${POSTGRES_PASSWORD:-fdt}@postgres:5432/${POSTGRES_DB:-fdt}
+      FDT_JWT_SECRET: ${FDT_JWT_SECRET:?set FDT_JWT_SECRET in .env}
+      FDT_CORS_ORIGINS: ${FDT_CORS_ORIGINS:-http://localhost:5173}
+      FDT_DEMO_MODE: ${FDT_DEMO_MODE:-true}
+      FDT_DEMO_TICK_SECONDS: ${FDT_DEMO_TICK_SECONDS:-1.2}
+      FDT_RUL_CAP: ${FDT_RUL_CAP:-125}
+      # Variant-driven artifact resolution. Do NOT pin FDT_ML_MODEL_PATH here: it
+      # overrides only the model, leaving the contract to resolve from the variant, and
+      # the two then disagree about which directory the artifact set lives in. A
+      # container started that way degraded to the deterministic fallback with a fully
+      # valid model on disk.
+      FDT_ML_VARIANT: ${FDT_ML_VARIANT:-all}
+      FDT_ML_DATASET: ${FDT_ML_DATASET:-FD001}
+      FDT_ML_FALLBACK: ${FDT_ML_FALLBACK:-true}
+    ports: ["8000:8000"]
+    restart: unless-stopped
+
+volumes:
+  fdt-db:
