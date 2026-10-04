@@ -7,6 +7,9 @@
 #   api    FastAPI monolith (REST + WebSocket + ML inference + replay engine)
 #   db     PostgreSQL 16
 #
+# Plus one short-lived `model-fetch` job (see below) that stages the trained boosters
+# before the API starts.
+#
 # Production differences live in docker-compose.prod.yml. Do not edit that file to tune
 # a development annoyance; override with a `docker-compose.override.yml` instead.
 
@@ -32,6 +35,41 @@ services:
       retries: 12
       start_period: 10s
     restart: unless-stopped
+
+  # Stages the trained boosters into backend/data/ml/<variant>/ before the API starts.
+  #
+  # C-MAPSS has a public mirror and scripts/fetch-cmapss.sh fetches it, but the boosters
+  # were only ever copyable from the notebook's Google Drive. Without this job a fresh
+  # checkout mounted an empty /app/data/ml, the loader found nothing, and every
+  # prediction came from `rul = 125 - cycle` — silently, because FDT_ML_FALLBACK defaults
+  # to true.
+  #
+  # It exits 0 when there is nothing to do (already staged, or no URL configured and the
+  # directory is populated) so a developer without access can still bring the stack up
+  # and see the fallback; /healthz reports `degraded` in that case. It is the only
+  # service that mounts the artifact directory read-write — the API itself keeps it :ro
+  # so it cannot rewrite the model it is serving.
+  #
+  # Runs as root purely to create and write the artifact directory: backend/data/ml is
+  # created on the host by whatever ran first, and the image's own user (fdt, uid 999)
+  # cannot write into a root-owned one. The files it writes are 644, so the API still
+  # reads them as fdt. Nothing here executes downloaded content — it is copied, then
+  # validated against the contract by scripts/stage_ml_artifacts.py.
+  model-fetch:
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile
+    profiles: ["bootstrap"]
+    user: "0:0"
+    environment:
+      FDT_DATA_DIR: /app/data
+      FDT_ML_VARIANT: ${FDT_ML_VARIANT:-all}
+      FDT_ML_DATASET: ${FDT_ML_DATASET:-FD001}
+      FDT_ML_ARTIFACTS_URL: ${FDT_ML_ARTIFACTS_URL:-}
+    volumes:
+      - ./backend/data/ml:/app/data/ml
+    entrypoint: ["python", "-m", "scripts.fetch_ml_artifacts"]
+    restart: "no"
 
   api:
     build:
@@ -62,7 +100,8 @@ services:
     volumes:
       # 43 MB of NASA C-MAPSS telemetry: fetched by scripts/fetch-cmapss.sh, not committed.
       - ./backend/data/cmapss:/app/data/cmapss:ro
-      # Trained boosters: staged by scripts/stage_ml_artifacts.py, not committed.
+      # Trained boosters: fetched by scripts/fetch_ml_artifacts.py (the `model-fetch`
+      # service above), not committed.
       - ./backend/data/ml:/app/data/ml:ro
     ports:
       # Exposed so /docs and /redoc are reachable without going through nginx. Loopback

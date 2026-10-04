@@ -37,7 +37,7 @@ report.xml
 # 43 MB of NASA C-MAPSS telemetry — run `make fetch-data`.
 backend/data/cmapss/
 # Trained boosters and feature contracts — staged by scripts/stage_ml_artifacts.py.
-backend/data/ml/
+# backend/data/ml/
 backend/backup.sql.gz
 *.sql
 

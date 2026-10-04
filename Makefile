@@ -16,6 +16,7 @@ BIN           := $(VENV)/bin
 
 .PHONY: help help-local up down restart logs ps rebuild migrate seed fresh setup fetch-data \
         dev-backend dev-frontend lint typecheck test test-unit db-test db-test-down \
+        fetch-model \
         db-dump db-restore clean distclean
 
 ## ── stack ────────────────────────────────────────────────────────────────────
@@ -66,6 +67,9 @@ logs: ## Tail all service logs (make logs api=web to filter)
 
 fetch-data: ## Download the NASA C-MAPSS telemetry into backend/data/cmapss
 	@scripts/fetch-cmapss.sh
+
+fetch-model: ## Download the trained boosters into backend/data/ml/$(FDT_ML_VARIANT)
+	@$(COMPOSE) --profile bootstrap run --rm model-fetch
 
 migrate: ## Apply database migrations
 	@$(COMPOSE) run --rm --entrypoint alembic api upgrade head

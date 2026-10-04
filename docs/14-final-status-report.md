@@ -16,7 +16,7 @@ Date of record: notebook run on Colab, Drive authorised. Backend work verified l
 | Does a trained model exist? | ✅ On Google Drive, `models/multi/` |
 | Is it trained on all the data? | ✅ FD001: 20,631 rows / 100 engines |
 | Is it good? | ✅ Official test RMSE **18.30**, asymmetric score 0.464 |
-| Can the backend serve it? | ⚠️ Code can now read it; **the file is not in the repo** |
+| Can the backend serve it? | ✅ `make fetch-model` stages it from `FDT_ML_ARTIFACTS_URL`; `POST /api/v1/ml/reload` picks up a new set without a restart |
 | Is training reproducible outside the notebook? | ❌ `train_rul.py` still trains a different model |
 | Do the other subsets help? | ❌ No accuracy gain, and they are handicapped (see §5) |
 
