@@ -410,13 +410,25 @@ the RUL model on a Colab VM and writes the artifacts to cloud storage. They are 
 committed** — a booster is ~900 KB and fully regenerable.
 
 ```bash
-# 1. train in the notebook, then download the artifacts
-# 2. stage them where the loader looks
-cd backend
-python -m scripts.stage_ml_artifacts --source <dir-with-models/multi> --variant all
+# 1. train in the notebook, then make the artifacts reachable at some URL
+# 2. fetch them where the loader looks
+make fetch-model
 ```
 
-That copies into `backend/data/ml/all/`, which is bind-mounted into the container.
+That downloads `<base>/<variant>/<file>` into `backend/data/ml/all/`, which is
+bind-mounted into the container. `FDT_ML_ARTIFACTS_URL` in `.env` is the base URL; it
+has no default, because unlike C-MAPSS the boosters are not on a public mirror.
+
+To copy them across by hand instead — from a download, a Drive mount, anywhere:
+
+```bash
+docker compose --profile bootstrap run --rm --entrypoint sh model-fetch \
+  -c 'python -m scripts.stage_ml_artifacts --source <dir> --variant all'
+```
+
+Both paths validate the set before staging: a booster whose feature count disagrees with
+its contract is refused, because XGBoost consumes a positional matrix and the mismatch
+would surface as plausible-looking wrong predictions rather than an error.
 
 ### Serving
 
@@ -489,7 +501,7 @@ Protocol: [`docs/09-realtime-and-demo-mode.md`](docs/09-realtime-and-demo-mode.m
 |---|---|---|
 | Fleet CSVs | 8 tables, ~5,900 rows: aircraft, components, flight operations, agencies, spares, maintenance records, snag logs | **Yes** — `backend/data/raw/`, 584 KB |
 | NASA C-MAPSS | 20,631+ cycle rows across FD001–FD004, 21 sensors, 3 operating settings, ground-truth RUL | **No** — 43 MB, `make fetch-data` |
-| Trained artifacts | XGBoost boosters, feature contracts, regime baselines | **No** — regenerable, `scripts/stage_ml_artifacts.py` |
+| Trained artifacts | XGBoost boosters, feature contracts, regime baselines | **No** — 1.2 MB, `make fetch-model` (`FDT_ML_ARTIFACTS_URL`) |
 
 C-MAPSS is third-party with an unchanged upstream source, so re-fetching beats carrying
 43 MB in every clone. The API **fails its Docker build** if `data/raw` is missing, and
@@ -743,9 +755,11 @@ The assets did not reach the bundle. Check `frontend/dist/models/` and that
 files.
 
 **`/healthz` reports `status: degraded` with a missing-file error**
-Expected without trained artifacts. The app is fully functional on the deterministic
-curve. To serve the real model, run
-`python -m scripts.stage_ml_artifacts --source <dir> --variant all`.
+`backend/data/ml/` is empty: the boosters are not committed and have not been fetched.
+The app stays functional on the deterministic `rul = 125 - cycle` curve, so this is
+visible rather than silent. To serve the real model, set `FDT_ML_ARTIFACTS_URL` in `.env`
+and run `make fetch-model`; the next API start (or `POST /api/v1/ml/reload`) picks it
+up. `make fetch-model` with no URL set explains what to configure instead of skipping.
 
 **The API boots but the replay engine reports no aircraft**
 `backend/data/cmapss/` is empty. Run `make fetch-data`. A missing CSV is not an error

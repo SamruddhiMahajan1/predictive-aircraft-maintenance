@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-shot development bootstrap: env file, dataset, migrations, seed.
+# One-shot development bootstrap: env file, datasets, model artifacts, migrations, seed.
 #
 # Idempotent, and safe to re-run. Intended to be the first thing a new checkout runs:
 #
@@ -35,24 +35,40 @@ else
   echo ".env already exists, leaving it alone"
 fi
 
-step "2/5 NASA C-MAPSS telemetry"
+step "2/6 NASA C-MAPSS telemetry"
 if compgen -G "backend/data/cmapss/*_FD001.txt" >/dev/null; then
   echo "already present"
 else
   scripts/fetch-cmapss.sh
 fi
 
-step "3/5 build"
+step "3/6 build"
 "${COMPOSE[@]}" build
 
-step "4/5 start database"
+# The boosters are not committed and C-MAPSS has a public mirror while the boosters do
+# not, so this step is the only thing that gets a real model onto a fresh checkout. It
+# runs after the build because the fetcher lives in the image. A failure here is not
+# fatal: the API falls back to `rul = 125 - cycle` and /healthz reports `degraded`.
+step "4/6 trained model artifacts"
+if compgen -G "backend/data/ml/${FDT_ML_VARIANT:-all}/*.json" >/dev/null; then
+  echo "already staged"
+elif "${COMPOSE[@]}" --profile bootstrap run --rm model-fetch; then
+  echo "staged"
+else
+  echo "could not fetch the boosters — the API will serve the deterministic fallback." >&2
+  echo "Set FDT_ML_ARTIFACTS_URL in .env, or copy them in by hand:" >&2
+  echo "  docker compose --profile bootstrap run --rm --entrypoint sh model-fetch \\" >&2
+  echo "    -c 'python -m scripts.stage_ml_artifacts --source <dir> --variant ${FDT_ML_VARIANT:-all}'" >&2
+fi
+
+step "5/6 start database"
 "${COMPOSE[@]}" up -d db
 for _ in $(seq 1 30); do
   if "${COMPOSE[@]}" exec -T db pg_isready -U fdt -d fdt >/dev/null 2>&1; then break; fi
   sleep 1
 done
 
-step "5/5 migrate and seed"
+step "6/6 migrate and seed"
 "${COMPOSE[@]}" run --rm --entrypoint sh api -c 'alembic upgrade head && python -m app.seed.run'
 
 printf '\n\033[1m[dev-up] done\033[0m  run `make up` and open http://localhost:8080\n'

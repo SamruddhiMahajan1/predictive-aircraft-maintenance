@@ -25,7 +25,7 @@ data/cmapss/
 # Trained boosters and feature contracts. Produced by ml/notebooks/Model_training_249.ipynb
 # on a Colab VM, staged by `python -m scripts.stage_ml_artifacts`. A booster is ~900 KB
 # and regenerable; never commit one (see docs/08 §4).
-data/ml/
+# data/ml/
 
 # Local database dumps from `make db-dump`
 backup.sql.gz

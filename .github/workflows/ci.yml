@@ -37,6 +37,10 @@ jobs:
       # The suite drops and recreates the public schema, so this must stay a throwaway
       # database. The workflow provisions one; never point it at anything shared.
       FDT_TEST_DATABASE_URL: postgresql+psycopg://fdt:fdt@localhost:5432/fdt_test
+      # env.py reads FDT_DATABASE_URL, not the test-only alias, so the `alembic`
+      # steps below need it as well. Without it they silently fall back to the
+      # config default `.../fdt`, a database this service never creates.
+      FDT_DATABASE_URL: postgresql+psycopg://fdt:fdt@localhost:5432/fdt_test
       FDT_JWT_SECRET: ci-secret-0123456789abcdefghijklmnop
       FDT_ENVIRONMENT: development
       FDT_DEMO_MODE: "false"
@@ -72,10 +76,15 @@ jobs:
         run: pytest -q --junitxml=report.xml
 
       - name: migrations round-trip
+        # The downgrade has to tear down what the upgrade built — enums included,
+        # since Alembic never autogenerates their teardown — or the second upgrade
+        # dies on DuplicateObject. `alembic check` then asserts the rebuilt schema
+        # still matches app.models, so a migration can never drift from the ORM.
         run: |
           alembic upgrade head
           alembic downgrade base
           alembic upgrade head
+          alembic check
 
       - uses: actions/upload-artifact@v4
         if: always()
