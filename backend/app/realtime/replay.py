@@ -5,6 +5,7 @@ import asyncio
 import logging
 from contextlib import suppress
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import select
 
@@ -82,17 +83,40 @@ class ReplayEngine:
         with session() as db:
             return list(db.scalars(select(Aircraft).where(Aircraft.is_active.is_(True))))
 
+    def _resume_cycle(self, unit: Any) -> int:
+        """Where a wrapped engine restarts, so the feature window is already full.
+
+        Wrapping to cycle 1 gave `cmapss.window` a single row, and `build_window`
+        rejects anything under five cycles — so the first four ticks after every wrap
+        were answered from `rul = 125 - cycle`. That is not a rounding artefact: the
+        model said 118 at cycle 5 while the fallback had just been claiming 121, and
+        the degradation was invisible because a healthy engine's linear guess is
+        roughly right. Each wrap therefore produced a visible step *and* a silent
+        fallback, once per engine lifetime.
+
+        Restarting at `ml_window` skips the first 29 cycles of an engine's life —
+        the least informative ones, all healthy and well above the RUL cap — and
+        buys a complete window, so every prediction is model-backed. The unit is
+        still walked to genuine end of life before wrapping.
+        """
+        target = max(1, self.settings.ml_window)
+        if cmapss.row(unit, target) is not None:
+            return target
+        # Pathological unit shorter than the window; fall back to the old behaviour
+        # and let build_window report the short window rather than inventing data.
+        return 1
+
     async def _advance(self, aircraft: Aircraft) -> None:
         unit = aircraft.cmapss_unit_id
         next_cycle = aircraft.current_cycle + 1
         row = cmapss.row(unit, next_cycle)
 
         if row is None:                                   # wrap at end of life
-            next_cycle = 1
-            row = cmapss.row(unit, 1)
-            aircraft.current_cycle = 1
+            next_cycle = self._resume_cycle(unit)
+            row = cmapss.row(unit, next_cycle)
+            aircraft.current_cycle = next_cycle
             EMA[aircraft.id] = EmaState.empty()          # reset smoothing (docs/09 §1.2)
-            log.info("%s wrapped to cycle 1", aircraft.code)
+            log.info("%s wrapped to cycle %d", aircraft.code, next_cycle)
 
         window = cmapss.window(unit, next_cycle, self.settings.ml_window)
         prediction = await asyncio.to_thread(inference.predict, window, current_cycle=next_cycle)
@@ -132,7 +156,8 @@ class ReplayEngine:
 
         await bus.publish(cycle_tick(next_cycle))
         await bus.publish(health_updated(
-            aircraft.code, aircraft.id, "engine", health, risk, prediction["rul"], next_cycle
+            aircraft.code, aircraft.id, "engine", health, risk, prediction["rul"],
+            next_cycle, model=prediction.get("model"),
         ))
 
         if risk != previous_risk and risk != "healthy":

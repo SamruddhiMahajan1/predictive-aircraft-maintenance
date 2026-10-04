@@ -37,12 +37,16 @@ export function finGlb(o, k) {const c=SFG[k],an=c.an.map(p=>{const a=[0,0,0];a[c
 // Per-frame animation of a sub-fault part.
 export function subFaultAnim(pr, t, dt, po) {
   const { stage, cam } = ctx;
- const k=app.cur,e=fleet[app.sel],H=[0,1,2].map(i=>subH(e,k,i)),pul=.5+.5*Math.sin(t/180),w=stage.clientWidth,h2=stage.clientHeight,sf=pr.sf,bad=H.some(x=>x<.6);
- if(pr.U){pr.U.uH.value.set(H[0],H[1],H[2]);pr.U.uT.value=t/1000}
- if(pr.mg)pr.mg.forEach((ms,i)=>{const b=H[i]<.6,g=b?(.3+.5*pul)*(1.1-H[i]/.6*.6):0;ms.forEach(m=>m.emissive.setRGB(g*1.7,g*.05,g*.05))});
- sf.halos.forEach((m,i)=>m.material.opacity=po*(H[i]<.6?.16+.2*pul:0));
- sf.tags.forEach((d,i)=>{if(H[i]<.6&&rt.tz==1){_v.copy(sf.an[i]);pr.obj.localToWorld(_v);_v.project(cam);d.style.display='block';d.style.left=((_v.x+1)/2*w)+'px';d.style.top=((1-_v.y)/2*h2-30)+'px';d.style.background='#d4162f';d.textContent=SFM[k][i]+', '+Math.round(H[i]*100)+'%'}else d.style.display='none'});
- const q=ctx.SF.s;q.style.display=rt.tz==1?'block':'none';q.textContent=bad?'Fault detected in '+PARTS[k].name.toLowerCase():PARTS[k].name+' normal';q.style.color=bad?'#ff4d5e':'#3ddc84';q.style.borderColor=q.style.color}
+ // subH returns null for a part the API has not reported yet. An unknown sub-component
+ // must not be treated as a failed one — the previous comparison `null < .6` was true,
+ // so the moment the server stopped answering the model lit up red on all three zones.
+ const k=app.cur,e=fleet[app.sel],H=[0,1,2].map(i=>subH(e,k,i)),known=H.every(x=>x!=null),H2=H.map(x=>x??1),
+ pul=.5+.5*Math.sin(t/180),w=stage.clientWidth,h2=stage.clientHeight,sf=pr.sf,bad=known&&H2.some(x=>x<.6);
+ if(pr.U){pr.U.uH.value.set(H2[0],H2[1],H2[2]);pr.U.uT.value=t/1000}
+ if(pr.mg)pr.mg.forEach((ms,i)=>{const b=H2[i]<.6,g=b?(.3+.5*pul)*(1.1-H2[i]/.6*.6):0;ms.forEach(m=>m.emissive.setRGB(g*1.7,g*.05,g*.05))});
+ sf.halos.forEach((m,i)=>m.material.opacity=po*(H2[i]<.6&&known?.16+.2*pul:0));
+ sf.tags.forEach((d,i)=>{if(H2[i]<.6&&known&&rt.tz==1){_v.copy(sf.an[i]);pr.obj.localToWorld(_v);_v.project(cam);d.style.display='block';d.style.left=((_v.x+1)/2*w)+'px';d.style.top=((1-_v.y)/2*h2-30)+'px';d.style.background='#d4162f';d.textContent=SFM[k][i]+', '+Math.round(H2[i]*100)+'%'}else d.style.display='none'});
+ const q=ctx.SF.s;q.style.display=rt.tz==1?'block':'none';q.textContent=!known?'Awaiting '+PARTS[k].name.toLowerCase()+' data':bad?'Fault detected in '+PARTS[k].name.toLowerCase():PARTS[k].name+' normal';q.style.color=!known?'#c8902e':bad?'#ff4d5e':'#3ddc84';q.style.borderColor=q.style.color}
 
 export function hideSubFaultTags() {
   if (ctx.SF) Object.values(ctx.SF).forEach((x) => (x.style.display = 'none'));

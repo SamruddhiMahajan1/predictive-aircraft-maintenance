@@ -149,6 +149,74 @@ export async function fetchFleetSummary() {
   }
 }
 
+/**
+ * Aircraft x part health matrix.
+ *
+ * This is the endpoint that makes the health heatmap real. The grid used to be
+ * computed in the browser from a hardcoded wear curve, so every cell was invented
+ * locally and had no relationship to the model or the database.
+ */
+export async function fetchHeatmap() {
+  try {
+    const { ok, body } = await request('/fleet/heatmap');
+    return ok ? body : null;
+  } catch (err) {
+    console.warn('[API] fetchHeatmap failed:', err);
+    return null;
+  }
+}
+
+/** Worst parts across the fleet, with the action, spare, agency and turnaround. */
+export async function fetchFleetActions(limit = 5) {
+  try {
+    const { ok, body } = await request(`/fleet/actions?limit=${limit}`);
+    return ok ? body : null;
+  } catch (err) {
+    console.warn('[API] fetchFleetActions failed:', err);
+    return null;
+  }
+}
+
+/** One row per aircraft: worst part, action, due dates, spare status, agency, work order. */
+export async function fetchSchedule() {
+  try {
+    const { ok, body } = await request('/maintenance/schedule');
+    return ok ? body : null;
+  } catch (err) {
+    console.warn('[API] fetchSchedule failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Engine detail for one aircraft: per-module health, RUL, top sensors by real
+ * z-score, the engine spare, and the last N cycles of history.
+ */
+export async function fetchEngineDetail(codeOrId, window = 60) {
+  try {
+    const { ok, body } = await request(
+      `/aircraft/${encodeURIComponent(codeOrId)}/engine?window=${window}`,
+    );
+    return ok ? body : null;
+  } catch (err) {
+    console.warn('[API] fetchEngineDetail failed:', err);
+    return null;
+  }
+}
+
+/** Part detail: health, action, technical records, spare, agency, back-in-service breakdown. */
+export async function fetchPartDetail(codeOrId, part) {
+  try {
+    const { ok, body } = await request(
+      `/aircraft/${encodeURIComponent(codeOrId)}/parts/${encodeURIComponent(part)}`,
+    );
+    return ok ? body : null;
+  } catch (err) {
+    console.warn('[API] fetchPartDetail failed:', err);
+    return null;
+  }
+}
+
 export async function fetchAlerts() {
   try {
     const { ok, body } = await request('/alerts?limit=50');

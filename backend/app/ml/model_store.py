@@ -9,7 +9,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -268,13 +268,21 @@ def handle() -> ModelHandle:
     return _handle
 
 
-def load(settings: Settings | None = None) -> ModelHandle:
-    """Idempotent, thread-safe, called once from the FastAPI lifespan."""
+def load(settings: Settings | None = None, *, force: bool = False) -> ModelHandle:
+    """Idempotent, thread-safe, called from the FastAPI lifespan.
+
+    `force=True` re-reads the artifact set from disk even when a model is already
+    loaded, which is the only way to pick up a newly staged booster without
+    restarting the container. The artifact directory is a bind mount, so files
+    appear the moment they are copied in — but nothing watched for them, and the
+    app kept answering from `rul = 125 - cycle` with no signal that it had.
+    """
     global _handle
     s = settings or get_settings()
     with _lock:
-        if _handle.ready:
+        if _handle.ready and not force:
             return _handle
+        previous = _handle
         try:
             import xgboost as xgb  # imported lazily so the app boots without it
 
@@ -321,11 +329,32 @@ def load(settings: Settings | None = None) -> ModelHandle:
             )
         except Exception as exc:  # noqa: BLE001 — degrade, never crash the app
             reason = str(exc).strip().splitlines()[0][:200]
+            if previous.ready:
+                # A forced reload failed but we are already serving a working model.
+                # Swapping in the fallback here would turn a bad deploy of a new
+                # artifact into a live outage, so keep the booster and report the
+                # failure through /healthz instead.
+                log.error("ML reload failed (%s); still serving the previously "
+                          "loaded model", reason)
+                _handle = replace(previous, error=reason)
+                return _handle
             log.warning("ML artifact unavailable (%s); running deterministic fallback", reason)
             _handle = ModelHandle(ready=False, error=reason)
             if not s.ml_fallback:
                 raise ModelUnavailableError(reason) from exc
         return _handle
+
+
+def reload(settings: Settings | None = None) -> ModelHandle:
+    """Force a fresh read of the artifact set, then warm the new booster.
+
+    Warm on success only: warming a handle that failed to load would run the
+    fallback path and report a warm model that was never exercised.
+    """
+    h = load(settings, force=True)
+    if h.ready:
+        warmup(h)
+    return h
 
 
 def warmup(h: ModelHandle | None = None) -> None:

@@ -33,11 +33,26 @@ def cycle_tick(cycle: int) -> Event:
 
 
 def health_updated(aircraft: str, aircraft_id: int, part: str,
-                   health: float, risk: str, rul: int | None, cycle: int) -> Event:
-    return Event(type="health.updated", payload={
+                   health: float, risk: str, rul: int | None, cycle: int,
+                   model: dict[str, Any] | None = None) -> Event:
+    """`model` carries the per-prediction provenance from `inference.predict`.
+
+    A per-tick fallback (a rejected window, a failed inference) leaves the model
+    loaded and /healthz green, so the health event is the only place the client can
+    learn that *this* number came from `rul = 125 - cycle` instead of the booster.
+    """
+    payload: dict[str, Any] = {
         "aircraft": aircraft, "aircraft_id": aircraft_id, "part": part,
         "health": health, "risk": risk, "rul": rul, "cycle": cycle,
-    })
+    }
+    if model is not None:
+        payload["model"] = {
+            "fallback": bool(model.get("fallback")),
+            "degraded": bool(model.get("degraded")),
+            "version": model.get("version"),
+            "reason": model.get("reason"),
+        }
+    return Event(type="health.updated", payload=payload)
 
 
 def alert_raised(alert: dict) -> Event:

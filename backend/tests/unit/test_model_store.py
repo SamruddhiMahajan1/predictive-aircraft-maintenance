@@ -115,6 +115,55 @@ def test_missing_artifact_degrades_to_fallback(tmp_path):
     assert h.error
 
 
+# ── picking up an artifact staged after boot ──────────────────────────────────
+def test_a_staged_artifact_is_picked_up_without_a_restart(tmp_path):
+    """The artifact dir is a bind mount, so files appear without a restart.
+
+    The lifespan calls `load` exactly once, so a booster staged into an already-running
+    container was never read and the API went on answering rul = 125 - cycle. `reload`
+    is the operation that closes that gap.
+    """
+    settings = Settings(ml_model_path=str(tmp_path / "xgboost_fd001_full.json"),
+                        ml_contract_path=str(tmp_path / "feature_contract_fd001_full.json"),
+                        ml_stats_path="")
+    assert model_store.load(settings).ready is False       # booted with nothing staged
+
+    _booster(tmp_path)
+    _contract(tmp_path, requires_scaler=True)
+
+    h = model_store.reload(settings)
+    assert h.ready is True
+    assert h.n_features == len(FEATURE_ORDER)
+
+
+def test_a_failed_reload_keeps_serving_the_model_already_in_memory(tmp_path):
+    """A bad deploy must not become an outage by swapping a good booster for the fallback."""
+    _booster(tmp_path)
+    contract = _contract(tmp_path, requires_scaler=True)
+    settings = _settings(tmp_path, contract, None)
+    assert model_store.load(settings).ready is True
+
+    (tmp_path / "xgboost_fd001_full.json").unlink()
+    h = model_store.reload(settings)
+
+    assert h.ready is True                                   # still answering
+    assert h.error and "No such file" in h.error             # and saying why
+    assert h.describe()["fallback"] is False
+
+
+def test_reload_replaces_a_loaded_handle_rather_than_returning_the_cache(tmp_path):
+    _booster(tmp_path)
+    contract = _contract(tmp_path, requires_scaler=True)
+    settings = _settings(tmp_path, contract, None)
+    first = model_store.load(settings)
+
+    _booster(tmp_path)                                        # restage, as retraining would
+    second = model_store.reload(settings)
+
+    assert second is not first
+    assert second.booster is not first.booster
+
+
 # ── the DMatrix trap ──────────────────────────────────────────────────────────
 def test_predict_accepts_a_plain_matrix(tmp_path):
     """A native Booster rejects a bare ndarray. This returned a fallback, not a crash."""

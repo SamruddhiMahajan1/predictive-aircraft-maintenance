@@ -29,7 +29,10 @@ export function startLoop() {
    KEYS.forEach((k,i)=>{const h=ph(e,k),c=hc(h),a=AR[k],L=LB[k];
     if(!a.ok){L.style.opacity=0;L.style.pointerEvents='none';return}
     if(a.c!==c){a.c=c;a.all.forEach(m=>m.color.set(c))}
-    L.style.setProperty('--c',c);L.lastChild.textContent=Math.round(h*100)+'%';
+    // ph() is null until the API answers for that part; it must render as unknown
+    // rather than as NaN% (or, worse, as a failed part once hc() started returning a
+    // neutral colour for null).
+    L.style.setProperty('--c',c);L.lastChild.textContent=h==null?'--':Math.round(h*100)+'%';
     aw.copy(a.a);JI.localToWorld(aw);v.copy(a.lp);JI.localToWorld(v);nw.copy(a.n).transformDirection(JI.matrixWorld);
     const face=nw.dot(pp.copy(cam.position).sub(aw).normalize()),vis=sm(-.05,.3,face)*(1-sm(0,.25,rt.tz));
     a.cone.position.y=7;a.ms.forEach(m=>m.opacity=vis);

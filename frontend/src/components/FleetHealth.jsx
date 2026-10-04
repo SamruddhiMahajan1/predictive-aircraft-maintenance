@@ -2,38 +2,49 @@ import { useStore } from '../state/useStore.js';
 import { selectAircraft } from '../state/store.js';
 import { fleet } from '../data/fleet.js';
 import { PARTS, KEYS } from '../data/parts.js';
-import { C, hc, rk } from '../lib/colors.js';
-import { ph, rul, ready, worst } from '../lib/health.js';
+import { C, hc } from '../lib/colors.js';
+import { rul, ready, ph, worst } from '../lib/health.js';
 import { fleetStats, pc } from '../lib/fleetStats.js';
 
 // "Parts status" stacked bar + average health per subsystem.
+//
+// The bar counts come from /fleet/summary's risk_breakdown, so the total matches the
+// critical-parts KPI instead of being recounted from the client's own thresholds.
 function PartsMix() {
-  const c = { h: 0, w: 0, c: 0 };
+  const { partsMix } = fleetStats();
+  const { healthy, watch, critical, total } = partsMix;
   const rows = KEYS.map((k) => {
-    let sum = 0, cr = 0;
-    fleet.forEach((e) => { const v = ph(e, k); sum += v; const r = rk(v); c[r[0]]++; if (r == 'critical') cr++; });
-    return [PARTS[k].name, sum / fleet.length, cr];
-  });
-  const n = fleet.length * KEYS.length;
+    let sum = 0, n = 0, cr = 0;
+    for (const e of fleet) {
+      const v = ph(e, k);
+      if (v == null) continue;
+      sum += v; n++;
+      if (v <= 0.4) cr++;
+    }
+    return [PARTS[k].name, n ? sum / n : null, cr];
+  }).sort((a, b) => (b[1] ?? 2) - (a[1] ?? 2));
+
   return (
     <div id="hmix">
-      <h3>{'Parts status, ' + n + ' parts'}</h3>
+      <h3>{'Parts status, ' + total + ' parts'}</h3>
       <div className="stk">
-        <i style={{ flex: c.h, background: C.ok }}></i>
-        <i style={{ flex: c.w, background: C.warn }}></i>
-        <i style={{ flex: c.c, background: C.bad }}></i>
+        <i style={{ flex: healthy, background: C.ok }}></i>
+        <i style={{ flex: watch, background: C.warn }}></i>
+        <i style={{ flex: critical, background: C.bad }}></i>
       </div>
       <div className="stl">
-        <span><b>{c.h}</b> healthy</span>
-        <span><b>{c.w}</b> watch</span>
-        <span><b>{c.c}</b> critical</span>
+        <span><b>{healthy}</b> healthy</span>
+        <span><b>{watch}</b> watch</span>
+        <span><b>{critical}</b> critical</span>
       </div>
       <h3 style={{ marginTop: 6 }}>Average health by subsystem</h3>
-      {rows.sort((a, b) => a[1] - b[1]).map((r) => (
+      {rows.map((r) => (
         <div className="hmr" key={r[0]}>
           <span>{r[0]}</span>
-          <div className="bar"><i style={{ width: r[1] * 100 + '%', background: hc(r[1]) }}></i></div>
-          <span className="mono">{Math.round(r[1] * 100) + '%'}</span>
+          <div className="bar">
+            <i style={{ width: (r[1] ?? 0) * 100 + '%', background: hc(r[1] ?? 0) }}></i>
+          </div>
+          <span className="mono">{r[1] == null ? '--' : Math.round(r[1] * 100) + '%'}</span>
           <span className="cr" style={{ color: r[2] ? C.bad : 'var(--mut)' }}>{r[2] ? r[2] + ' crit' : 'ok'}</span>
         </div>
       ))}
@@ -50,24 +61,34 @@ export default function FleetHealth() {
       <div className="hgrid">
         <div
           id="donut"
-          style={{ '--p': (nr / n) * 100 + '%' }}
-          data-tip={nr + ' of ' + n + ' aircraft are mission-ready\nMission-ready: over 30 engine cycles left\nand every part above 40% health'}
+          style={{ '--p': (n ? (nr / n) * 100 : 0) + '%' }}
+          data-tip={nr + ' of ' + n + ' aircraft are mission-ready, as reported by GET /api/v1/aircraft'}
         >
-          <div id="dn">{pc(nr / n) + '%'}</div>
+          <div id="dn">{n ? pc(nr / n) + '%' : '--'}</div>
         </div>
         <div>
           <div id="vbars">
             {fleet.map((e, i) => {
               const k = worst(e);
+              const r = e.rul;
+              const ok = ready(e);
               return (
                 <button
                   key={e.id}
                   className={'vb ' + (i == app.sel ? 'on' : '')}
                   data-i={i}
-                  data-tip={e.id + '\nEngine life left: ' + rul(e) + ' of 125 cycles\nWeakest part: ' + PARTS[k].name + ', ' + pc(ph(e, k)) + '%\n' + (ready(e) ? 'Mission-ready' : 'Not mission-ready') + '\nClick to select'}
+                  data-tip={
+                    e.id +
+                    '\nEngine life left: ' + (r == null ? '--' : r) + ' of 125 cycles' +
+                    '\nWeakest part: ' + (PARTS[k]?.name || k) + ', ' + pc(ph(e, k)) + '%' +
+                    '\n' + (ok ? 'Mission-ready' : 'Not mission-ready') +
+                    '\nClick to select'
+                  }
                   onClick={() => selectAircraft(i)}
                 >
-                  <span className="trk"><i className={ready(e) ? '' : 'bad'} style={{ height: Math.max(4, (rul(e) / 125) * 100) + '%' }}></i></span>
+                  <span className="trk">
+                    <i className={ok ? '' : 'bad'} style={{ height: Math.max(4, ((r ?? 0) / 125) * 100) + '%' }}></i>
+                  </span>
                   <em>{i + 1}</em>
                 </button>
               );

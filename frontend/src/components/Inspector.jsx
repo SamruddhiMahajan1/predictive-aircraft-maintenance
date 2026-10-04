@@ -3,6 +3,7 @@ import { useStore } from '../state/useStore.js';
 import { fleet } from '../data/fleet.js';
 import { drawHistoryChart } from '../lib/chart.js';
 import { scr, RSEL, prefersReducedMotion, startScreening, stopScreening } from '../lib/screening.js';
+import { refreshAircraft, refreshEngine, refreshPart } from '../state/server.js';
 import AircraftSummary from './inspector/AircraftSummary.jsx';
 import PartDetail from './inspector/PartDetail.jsx';
 
@@ -66,6 +67,17 @@ export default function Inspector() {
   });
 
   useLayoutEffect(() => () => { stopScreening(); clearTimeout(inTimer.current); }, []);
+
+  // Per-aircraft detail: part health and RUL, component health, sensor attribution, the
+  // engine spare and the 60-cycle history. These are separate endpoints from the
+  // fleet-wide poll, so they are fetched for whatever is actually selected rather than
+  // for all eight aircraft.
+  useLayoutEffect(() => {
+    if (!e) return;
+    refreshAircraft(e.id);
+    refreshEngine(e.id);
+    if (app.tgt) refreshPart(e.id, app.cur);
+  }, [app.sel, app.tgt, app.cur, e && e.id]);
 
   return (
     <section className="pn s12 rv" id="detail" ref={panelRef}>

@@ -1,6 +1,8 @@
 """Telemetry ingest (spec 40) and internal ML predict (spec 41)."""
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 import pytest
 from sqlalchemy import func, select
 
@@ -233,6 +235,49 @@ def test_predict_persist_true_writes_one_row(client, auth, db):
                       "persist": True})
     after = db.scalar(select(func.count()).select_from(MlPrediction))
     assert after == before + 1
+
+
+def test_repredicting_a_cycle_refreshes_its_provenance(client, auth, db):
+    """A row first written by the fallback must not keep saying 'fallback' for ever.
+
+    The replay wraps and revisits cycle numbers that already have rows, and the
+    upsert used to refresh only `rul`. Every other prediction-derived column kept
+    the values from whichever run created the row — so `model_version`, the column
+    you audit to learn whether a number came from the model, was permanently wrong
+    for any cycle first seen while the artifact was missing.
+    """
+    from app.repositories import telemetry_repo as telemetry
+
+    aircraft_id = db.scalar(
+        select(MlPrediction.aircraft_id).limit(1)
+    ) or _first_aircraft_id(db)
+
+    def write(model_version: str, rul: int) -> None:
+        telemetry.upsert_prediction(
+            db, aircraft_id=aircraft_id, cycle=9001, rul=rul,
+            component_health={"fan": 1.0, "hpc": 0.9, "hpt": 0.8, "lpt": 0.7},
+            top_sensors=[{"sensor": "s11", "contribution": 0.19}],
+            deviation={"s11": 1.4},
+            model_version=model_version, latency_ms=2.0,
+            created_at=datetime(2026, 1, 1, tzinfo=UTC), refresh_latency=True,
+        )
+        db.commit()
+
+    write("fallback", 100)
+    write("ALL", 42)
+
+    row = db.scalar(select(MlPrediction).where(
+        MlPrediction.aircraft_id == aircraft_id, MlPrediction.cycle == 9001))
+    assert row.model_version == "ALL"
+    assert row.rul == 42
+    assert float(row.hpc) == 0.9
+    assert row.deviation == {"s11": 1.4}
+
+
+def _first_aircraft_id(db) -> int:
+    from app.models.fleet import Aircraft
+
+    return db.scalar(select(Aircraft.id).order_by(Aircraft.id).limit(1))
 
 
 def test_predict_is_deterministic(client, auth):

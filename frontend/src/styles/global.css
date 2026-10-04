@@ -104,4 +104,7 @@ body{background-color:var(--cream);background-image:linear-gradient(var(--g2) 1p
 .backend-badge{display:inline-flex;align-items:center;gap:6px;font:600 12px var(--sans);padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--sand);color:var(--ink)}
 .backend-badge.online{background:color-mix(in srgb,#10b981 15%,var(--cream));color:#047857;border-color:#10b981}
 .backend-badge.connecting{background:color-mix(in srgb,#f59e0b 15%,var(--cream));color:#b45309;border-color:#f59e0b}
+.backend-badge .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.backend-badge .dot.green{background:#10b981}
+.backend-badge .dot.amber{background:#f59e0b}
 .role-badge{font:600 11px var(--mono);text-transform:uppercase;padding:3px 8px;border-radius:4px;background:var(--wine);color:var(--cream);letter-spacing:0.04em}

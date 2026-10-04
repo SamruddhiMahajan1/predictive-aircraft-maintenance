@@ -52,7 +52,7 @@ export function buildFuelSystem() {
 // Fuel level, leak drips, pump speed, status LEDs and fault tags depend on the three sub-component healths.
 export function animateFuel(pr, t, dt, po) {
   const { stage, cam } = ctx;
- const e=fleet[app.sel],H=[0,1,2].map(i=>subH(e,'fuel',i)),f=pr.f,pul=.5+.5*Math.sin(t/180),ph1=t/1000;
+ const e=fleet[app.sel],H=[0,1,2].map(i=>subH(e,'fuel',i)??1),f=pr.f,pul=.5+.5*Math.sin(t/180),ph1=t/1000;
  const lvl=-14+28*(.62-.22*(1-clamp(H[0]/.6)))+Math.sin(t/900)*.5;pr.sg.position.y=lvl;pr.sg.rotation.set(.03*Math.sin(t/800),0,.03*Math.sin(t/1100+1));pr.surf.scale.y=2*Math.sqrt(Math.max(1,196-lvl*lvl));
  f.updateMatrixWorld(true);pr.plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0,-1,0).transformDirection(f.matrixWorld),new THREE.Vector3(0,lvl,0).applyMatrix4(f.matrixWorld));
  [pr.mT,pr.mP,pr.mV].forEach((ms,i)=>{const bad=H[i]<.6,g=bad?(.3+.5*pul)*(1.1-H[i]/.6*.6):0;ms.forEach(m=>m.emissive.setRGB(g*1.7,g*.05,g*.05))});

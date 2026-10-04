@@ -99,6 +99,28 @@ def upsert_prediction(
     created_at: datetime,
     refresh_latency: bool = False,
 ) -> None:
+    # Every column the prediction derives is refreshed on conflict, not just `rul`.
+    #
+    # The replay walks each engine to end of life and then wraps to the start, so it
+    # revisits cycle numbers that already have rows. A row first written while the API
+    # was serving `rul = 125 - cycle` therefore kept `model_version='fallback'`, the
+    # linear component health and an empty `deviation` for ever, even after the real
+    # booster started answering for that same cycle — `model_version`, the one column
+    # you audit to find out whether a number came from the model, was permanently
+    # wrong, and the whole table read 'fallback' no matter what was serving traffic.
+    set_: dict[str, Any] = {
+        "rul": rul,
+        "fan": component_health["fan"],
+        "hpc": component_health["hpc"],
+        "hpt": component_health["hpt"],
+        "lpt": component_health["lpt"],
+        "top_sensors": top_sensors,
+        "deviation": deviation,
+        "model_version": model_version,
+    }
+    if refresh_latency:
+        set_["latency_ms"] = latency_ms
+
     db.execute(
         pg_insert(MlPrediction)
         .values(
@@ -117,9 +139,7 @@ def upsert_prediction(
         )
         .on_conflict_do_update(
             index_elements=[MlPrediction.aircraft_id, MlPrediction.cycle],
-            set_=(
-                {"rul": rul, "latency_ms": latency_ms} if refresh_latency else {"rul": rul}
-            ),
+            set_=set_,
         )
     )
 

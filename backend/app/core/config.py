@@ -52,9 +52,15 @@ class Settings(BaseSettings):
 
     # ml — artifacts as produced by Model_training_249.ipynb (docs/08 §4).
     # ml_variant selects which model generation to serve:
+    #   "all"      pooled over FD001-FD004, 32 features (the 29 plus regime_global),
+    #              z-scored per regime against four subsets of baselines
     #   "holdout"  the 80/20 model, StandardScaler preprocessing (Phase 1)
-    #   "full"     the all-engines refit, per-regime z-score preprocessing (Phase 2)
-    ml_variant: str = "full"
+    #   "full"     the FD001-only refit, per-regime z-score preprocessing (Phase 2)
+    #
+    # "all" is the default because it is the one we actually stage and serve: "full"
+    # and "holdout" describe directories nothing writes any more, so falling back to
+    # either resolved to a missing path and answered from rul = 125 - cycle.
+    ml_variant: str = "all"
     ml_dataset: str = "FD001"
     # None  -> derive the filename from ml_variant (the normal case)
     # ""    -> explicitly no such artifact (e.g. the z-score variant ships no scaler)

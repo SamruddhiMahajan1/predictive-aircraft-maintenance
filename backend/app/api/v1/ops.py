@@ -38,7 +38,11 @@ def healthz():
         # db_ok is excluded deliberately: an unreachable database is a separate
         # operational signal from a degraded model, and folding it in here made a
         # perfectly good model report "degraded" during integration tests.
-        "status": "degraded" if model.get("degraded") else "ok",
+        #
+        # `error` counts as degraded even when a model is still loaded: that is the
+        # shape a failed forced reload takes, where the booster we are serving is
+        # real but no longer the one on disk.
+        "status": "degraded" if (model.get("degraded") or model.get("error")) else "ok",
         "db": db_ok,
         "model": model,
         "replay": replay.status(),
@@ -68,6 +72,31 @@ def run_seed(user: CommanderOnly):
     from ...seed.run import run
 
     return {"status": "seeded", "counts": run()}
+
+
+@router.post("/api/v1/ml/reload")
+def ml_reload(user: CommanderOnly):
+    """Re-read the ML artifact set from disk and warm it.
+
+    The artifact directory is a bind mount, so a freshly staged booster is visible
+    immediately — but the model is otherwise only read once, in the lifespan. Staging
+    a model into a running container therefore had no effect and the API went on
+    serving `rul = 125 - cycle` with a perfectly healthy `status`. This is the
+    operation that makes staging observable.
+
+    Never raises for a bad artifact: a failed reload keeps the model already in
+    memory and reports the reason, because swapping a working booster for the
+    fallback would turn a bad deploy into an outage. The response says which of the
+    two happened — check `reloaded` and `loaded`, not just the status code.
+    """
+    before = model_store.handle()
+    after = model_store.reload()
+    return {
+        "reloaded": after is not before,
+        "loaded": after.ready,
+        "previous_version": before.version,
+        "model": after.describe(),
+    }
 
 
 @router.get("/api/v1/demo/status", response_model=DemoStatus)
