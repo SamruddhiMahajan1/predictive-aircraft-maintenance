@@ -74,7 +74,9 @@ if [[ ${#failed[@]} -gt 0 ]]; then
 
 The mirror may be unavailable. C-MAPSS is distributed by NASA at
   https://data.nasa.gov/dataset/cmapss-jet-engine-simulated-data
-Copy the *_FD*.txt files into $DEST manually and re-run.
+
+FD001 should be committed in the repo (see .gitignore). For other subsets,
+copy the *_FD*.txt files into $DEST manually and re-run.
 EOF
   exit 1
 fi

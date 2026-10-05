@@ -35,7 +35,13 @@ report.xml
 
 # ── Third-party data & generated artifacts (see docs/11 §3) ───────────────────
 # 43 MB of NASA C-MAPSS telemetry — run `make fetch-data`.
-backend/data/cmapss/
+# FD001 (~5.5 MB) is committed because every known public mirror is dead and the
+# Render build needs it.  The remaining subsets stay ignored.
+backend/data/cmapss/*
+!backend/data/cmapss/*_FD001.txt
+!backend/data/cmapss/RUL_FD001.txt
+!backend/data/cmapss/README.md
+!backend/data/cmapss/readme.txt
 # Trained boosters and feature contracts — staged by scripts/stage_ml_artifacts.py.
 # backend/data/ml/
 backend/backup.sql.gz
