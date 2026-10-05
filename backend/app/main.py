@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import time
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
@@ -61,6 +63,39 @@ async def _seed_if_empty(settings: Settings) -> None:
     log.info("boot seed complete")
 
 
+def _migrate_schema() -> None:
+    """Bring the database to `head`, with retries. Render-only.
+
+    Gated on the `RENDER` env var that Render injects (`RENDER=true`), so local
+    dev, Compose and the test suite keep running migrations explicitly and are
+    unaffected. On Render this used to run in `startCommand` *before* uvicorn
+    bound the port — a second interpreter boot plus a cross-region database
+    round trip during which the proxy answers every request with 502. Running it
+    here, after the port is bound, shrinks the 502 window on every cold start
+    and every deploy to the bare interpreter boot.
+
+    Never fatal: a failed migration is logged loudly and serving continues. A
+    crash-looping process serves 502 forever; a running one serves degraded
+    reads until the next deploy.
+
+    Requires CWD=backend (`alembic.ini` resolves `script_location = alembic`
+    relatively) — startCommand's `cd backend` is load-bearing for this too.
+    """
+    from alembic.config import Config  # noqa: E402
+
+    from alembic import command  # noqa: E402
+
+    for attempt in (1, 2, 3):
+        try:
+            command.upgrade(Config("alembic.ini"), "head")
+            log.info("schema at head (migration pass %d)", attempt)
+            return
+        except Exception:  # noqa: BLE001 — retried below, then tolerated
+            log.warning("migration pass %d failed", attempt, exc_info=True)
+            time.sleep(5 * attempt)
+    log.error("migrations failed after 3 passes — serving without schema upgrade")
+
+
 async def _background_init(app: FastAPI, settings: Settings) -> None:
     """Heavy boot work, off the readiness path.
 
@@ -71,6 +106,9 @@ async def _background_init(app: FastAPI, settings: Settings) -> None:
     refuses to start until C-MAPSS is present, and /healthz reports `starting`.
     """
     try:
+        if os.getenv("RENDER") == "true":
+            await asyncio.to_thread(_migrate_schema)
+
         # The two heavy reads — xgboost import + booster load + warmup inference,
         # and the C-MAPSS np.loadtxt parse. Both are CPU/file bound, so they go to
         # threads and run concurrently; the loop stays responsive while they finish.
