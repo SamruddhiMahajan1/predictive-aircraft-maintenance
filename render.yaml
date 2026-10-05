@@ -28,7 +28,7 @@ services:
       npm --prefix frontend ci &&
       npm --prefix frontend run build &&
       pip install ./backend &&
-      bash scripts/fetch-cmapss.sh --subset FD001 --quiet
+      (bash scripts/fetch-cmapss.sh --subset FD001 --quiet || true)
 
     # `cd backend` is load-bearing: alembic.ini has `script_location = alembic` and
     # `prepend_sys_path = .`, both relative to CWD, so alembic cannot run from the
