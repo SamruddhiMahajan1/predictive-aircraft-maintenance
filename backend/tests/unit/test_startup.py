@@ -9,9 +9,58 @@ pin that.
 from __future__ import annotations
 
 import asyncio
+import os
+import subprocess
+import sys
+from pathlib import Path
 from types import SimpleNamespace
 
 import app.main as main_module
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+PROBE = (
+    "import app, os; print(os.environ['OMP_NUM_THREADS'], "
+    "os.environ['OPENBLAS_NUM_THREADS'], os.environ['MKL_NUM_THREADS'], "
+    "os.environ['MALLOC_ARENA_MAX'])"
+)
+
+
+def _probe_env(extra: dict[str, str]) -> str:
+    """Run a bare `import app` in a fresh interpreter and report the pins."""
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k
+        not in (
+            "OMP_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "MALLOC_ARENA_MAX",
+        )
+    }
+    env.update(extra)
+    proc = subprocess.run(
+        [sys.executable, "-c", PROBE],
+        capture_output=True,
+        text=True,
+        cwd=BACKEND_DIR,
+        env=env,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return proc.stdout.strip()
+
+
+def test_package_init_pins_math_threads():
+    """`import app` alone must set single-threaded math: dashboard-created
+    services never see blueprint env vars, so code is the only reliable carrier
+    for this. Without it the BLAS/OpenMP pools size from host CPUs and OOM the
+    512 MB instance under a second client's load."""
+    assert _probe_env({}) == "1 1 1 2"
+
+
+def test_package_init_respects_explicit_threading():
+    """An operator's explicit setting always wins over the default."""
+    assert _probe_env({"OMP_NUM_THREADS": "99"}) == "99 1 1 2"
 
 
 def _fake_app():

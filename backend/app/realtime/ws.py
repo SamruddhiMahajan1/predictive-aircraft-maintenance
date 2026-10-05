@@ -76,9 +76,17 @@ async def ws_fleet(
             next_seq += 1
             await websocket.send_json(event.envelope(next_seq))
 
-    session = get_sessionmaker(settings)
-    with session() as db:
-        count = len(list(db.scalars(select(Aircraft.id))))
+    # The fleet size is handshake context, not worth dying for: under pool
+    # pressure (two clients bursting against 5 slots) this COUNT was the query
+    # that hit the 30 s pool timeout and tore the whole socket down with it.
+    # A zero count degrades one badge number; a dead socket kills the stream.
+    try:
+        session = get_sessionmaker(settings)
+        with session() as db:
+            count = len(list(db.scalars(select(Aircraft.id))))
+    except Exception:  # noqa: BLE001 — saturated pool, DB waking, anything
+        log.warning("fleet count unavailable at handshake; continuing with 0")
+        count = 0
     await websocket.send_json(
         connection_ready(count, settings.demo_mode, settings.demo_tick_seconds).envelope(0)
     )

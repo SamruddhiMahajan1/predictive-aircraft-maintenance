@@ -22,8 +22,15 @@ class Settings(BaseSettings):
     # storage
     database_url: str = "postgresql+psycopg://fdt:fdt@localhost:5432/fdt"
     db_echo: bool = False
+    # Sized for a free managed database (Aiven free caps max_connections at 20):
+    # 5 steady + 5 burst = 10, leaving headroom for a pre-deploy migration and a
+    # seed running alongside the live pool. The 3+2 this used to default to on
+    # Render starved under two concurrent clients — every request holds its
+    # session for its full (slow, cross-region) duration, so 5 slots wedged and
+    # even the WebSocket handshake's one COUNT query timed out after 30 s,
+    # killing the live stream exactly when a second device joined.
     db_pool_size: int = 5
-    db_max_overflow: int = 10
+    db_max_overflow: int = 5
 
     # http
     # NoDecode: a comma-separated env string must not be JSON-parsed first
