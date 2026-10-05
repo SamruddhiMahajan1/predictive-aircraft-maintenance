@@ -139,13 +139,16 @@ services:
       - key: FDT_CMAPSS_PRELOAD_ALL
         value: "false"
 
-      # Aiven free caps max_connections at 20. The defaults (5 + 10 overflow) could
-      # reach 15 from one instance before Alembic and transients are counted; these
-      # leave ample headroom.
+      # Aiven free caps max_connections at 20. 5 steady + 5 burst = 10, leaving
+      # headroom for a pre-deploy migration and a seed alongside the live pool.
+      # The 3 + 2 these used to be starved under two concurrent clients: every
+      # request holds its session for its full cross-region duration, so 5 slots
+      # wedged and even the WebSocket handshake's COUNT query hit the 30 s pool
+      # timeout — killing the live stream exactly when a second device joined.
       - key: FDT_DB_POOL_SIZE
-        value: "3"
+        value: "5"
       - key: FDT_DB_MAX_OVERFLOW
-        value: "2"
+        value: "5"
 
       # Without a horizon the replay engine's four append-only tables grow at a
       # measured ~36 KB/s (~93 GB/month) and fill this 1 GB plan in about eight hours.
