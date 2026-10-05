@@ -1,20 +1,44 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../state/useStore.js';
-import { closePart, setView } from '../state/store.js';
+import { closePart, setView, setStatus } from '../state/store.js';
 import { fleet } from '../data/fleet.js';
 import { PARTS } from '../data/parts.js';
-import { createTwin } from '../three/index.js';
 
 const VIEWS = [['auto', 'Auto'], ['top', 'Top'], ['side', 'Side'], ['under', 'Underside']];
 
-// The 3D viewport. React owns the overlay UI (title, view buttons); the three.js scene is a plain module mounted into #stage.
+// The 3D viewport. React owns the overlay UI (title, view buttons); the three.js
+// scene is a plain module mounted into #stage.
+//
+// three.js (~512 KB) is dynamically imported inside the effect — not statically —
+// so it never blocks first paint. The shell (navbar, fleet bar, KPIs) renders
+// from the initial ~85 KB gzip bundle while the 3D chunk + GLB models stream in
+// behind the "Loading 3D…" status line.
 export default function TwinStage() {
   const app = useStore();
   const stageRef = useRef(null);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    const twin = createTwin(stageRef.current);
-    return () => twin.dispose();
+    let twin = null;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { createTwin } = await import('../three/index.js');
+        if (cancelled || !stageRef.current) return;
+        twin = createTwin(stageRef.current);
+        setReady(true);
+      } catch (e) {
+        if (!cancelled) setStatus('Could not load 3D: ' + (e?.message || e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+      try {
+        twin?.dispose();
+      } catch {
+        /* dispose is best-effort on unmount */
+      }
+    };
   }, []);
 
   const e = fleet[app.sel];
@@ -24,7 +48,7 @@ export default function TwinStage() {
         <i className="glow"></i>
         <div id="intro">
           <b>Fleet digital twin</b>
-          <span>Drag to turn the aircraft. Select a label to look inside.</span>
+          <span>{ready ? 'Drag to turn the aircraft. Select a label to look inside.' : 'Loading 3D…'}</span>
         </div>
         <button id="back" onClick={closePart} style={{ display: app.tgt ? 'block' : 'none' }}>Back to aircraft</button>
         <div id="views">

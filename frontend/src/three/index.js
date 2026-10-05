@@ -23,10 +23,16 @@ export function createTwin(stage) {
   resize();
   startLoop();
 
-  // Real models stream in from /public/models.
-  Promise.all([loadJet(), loadLandingGear(), loadRadar(), loadEngine()])
+  // Real models stream in from /public/models. The hero jet loads first so the
+  // stage becomes meaningful as fast as possible; gear/radar/engine follow in
+  // the background. Previously Promise.all() held the "Loading models…" status
+  // until the slowest of the four finished.
+  loadJet()
     .then(() => { if (!ctx.disposed) setStatus('Drag to rotate. Click a label to inspect a part.'); })
     .catch((e) => { if (!ctx.disposed) setStatus('Could not load a model: ' + e.message); });
+  Promise.all([loadLandingGear(), loadRadar(), loadEngine()]).catch((e) => {
+    if (!ctx.disposed) setStatus('Could not load a model: ' + e.message);
+  });
 
   return {
     dispose() {

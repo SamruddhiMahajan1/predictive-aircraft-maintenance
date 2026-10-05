@@ -7,6 +7,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -67,16 +68,22 @@ async def lifespan(app: FastAPI):
 
     log.info("starting %s", settings.app_name)
 
-    # ML artifact loaded once, before traffic is accepted (docs/08 §5)
-    handle = model_store.load(settings)
+    # The two heavy reads — xgboost import + booster load + warmup inference, and
+    # the C-MAPSS np.loadtxt parse — used to run serially on the event loop before
+    # traffic was accepted, stalling the Render health check for 1-3 min on a cold
+    # boot. Both are CPU/file bound, so they go to threads and run concurrently;
+    # the loop stays responsive while they finish.
+    handle, _ = await asyncio.gather(
+        asyncio.to_thread(model_store.load, settings),
+        asyncio.to_thread(cmapss.load, settings),
+    )
     if handle.ready:
-        model_store.warmup(handle)
+        await asyncio.to_thread(model_store.warmup, handle)
         log.info("model loaded: %s (mae=%s)", handle.version, handle.mae)
     else:
         log.warning("running deterministic fallback: %s", (handle.error or "")[:200])
 
     bus.bind_loop()
-    cmapss.load(settings)
     # Seed before the replay engine: the engine walks `Aircraft`, so it has to find the
     # fleet already present rather than racing to populate it.
     await _seed_if_empty(settings)
@@ -172,6 +179,30 @@ def create_app() -> FastAPI:
         allow_headers=["Content-Type", "X-Request-ID"],
         expose_headers=["X-Request-ID"],
     )
+
+    # On Render there is no nginx in front — uvicorn serves the Vite bundle
+    # directly. Without this every JSON response and every JS/CSS asset goes
+    # over the wire uncompressed (~780 KB JS + multi-MB GLBs). Gzip at level 5
+    # is the sweet spot for a 512 MB instance: ~70% smaller responses for
+    # negligible CPU. StaticFiles mounts below go through middleware too.
+    app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=5)
+
+    @app.middleware("http")
+    async def cache_control(request: Request, call_next):
+        response = await call_next(request)
+        path = request.url.path
+        # Vite emits content-hashed filenames under /assets and versioned binary
+        # models under /models — both immutable for a year. Without this every
+        # cold visitor re-downloads ~10 MB of JS + GLBs on every navigation,
+        # which is the bulk of "takes a lot of time to render".
+        if path.startswith("/assets/") or path.startswith("/models/"):
+            response.headers.setdefault(
+                "Cache-Control", "public, max-age=31536000, immutable"
+            )
+        elif path in ("/healthz", "/readyz"):
+            # Keep-alive bots hit these every 5 min — never let a CDN cache them.
+            response.headers.setdefault("Cache-Control", "no-store")
+        return response
 
     @app.middleware("http")
     async def request_context(request: Request, call_next):

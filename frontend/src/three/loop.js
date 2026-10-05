@@ -20,6 +20,9 @@ export function startLoop() {
   const P0=new THREE.Vector3(72,56,168),P2=new THREE.Vector3(0,12,105),T0=new THREE.Vector3(),v=new THREE.Vector3(),aw=new THREE.Vector3(),nw=new THREE.Vector3(),pp=new THREE.Vector3(),np=new THREE.Vector3(),tt=new THREE.Vector3();
 
   function frame(t){rt.raf=requestAnimationFrame(frame);
+   // A hidden tab still gets throttled rAF callbacks — skip the whole scene
+   // graph walk + DOM writes instead of burning CPU/GPU for nobody.
+   if(document.hidden){rt.lt=t;return}
    const dt=Math.min(.05,(t-rt.lt)/1000||.016);rt.lt=t;
    rt.tz=clamp(rt.tz+(app.tgt?1:-1)*(rt.tz==app.tgt?0:dt/1.5));if(Math.abs(rt.tz-app.tgt)<.001)rt.tz=app.tgt;
    const e=fleet[app.sel],fit=Math.max(1,1.25/cam.aspect),calm=1-sm(0,.3,rt.tz),bob=Math.sin(t/950);

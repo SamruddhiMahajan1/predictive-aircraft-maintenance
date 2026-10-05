@@ -46,9 +46,9 @@ def run() -> dict[str, int]:
         counts["work_orders"] = derived.seed_work_orders(db)
         counts["alerts"] = derived.seed_alerts(db)
 
-        for note in derived.reconcile_health(db):
+        for note in (notes := derived.reconcile_health(db)):
             log.warning("reconciliation: %s", note)
-        _write_reconciliation_log(derived.reconcile_health(db))
+        _write_reconciliation_log(notes)
         db.commit()
 
     log.info("seed complete: %s", counts)

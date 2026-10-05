@@ -1,0 +1,90 @@
+# Fly.io configuration for the Fleet Digital Twin API (FastAPI monolith).
+#
+# Deploy with:
+#   fly apps create fdt-api --org personal
+#   fly deploy --config fly.api.toml
+#
+# The web app (fly.web.toml) proxies /api and /ws to this app over Fly's
+# private WireGuard network (*.flycast), so this service has no public HTTPS
+# — the only port exposed externally is the internal 8000.
+
+app = "fdt-api"
+primary_region = "sin"          # Singapore — change to match your Fly Postgres region
+
+[build]
+  dockerfile = "docker/backend/Dockerfile"
+  [build.args]
+    BUILDKIT_INLINE_CACHE = "1"
+
+# ── Machine sizing ────────────────────────────────────────────────────────────
+# FREE TIER: shared-cpu-1x + 256MB — Fly.io includes 3 of these at no cost.
+#
+# This works because FDT_ML_FALLBACK=true keeps XGBoost from loading into RAM.
+# The app runs on the deterministic `rul = 125 - cycle` curve instead of the
+# trained model. Everything else (fleet twin, 3D viewer, WebSocket, alerts) works.
+#
+# To enable the real ML model later, set FDT_ML_ARTIFACTS_URL and upgrade to:
+#   size   = "shared-cpu-2x"
+#   memory = "1gb"    ← ~$1.94/mo — XGBoost needs ~200–400 MB headroom
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"
+  count  = 1    # MUST be 1 — in-process replay engine; 2nd machine = double-advancing fleet
+
+# ── Persistent volume ─────────────────────────────────────────────────────────
+# Holds ML artifacts (data/ml/) and C-MAPSS telemetry (data/cmapss/).
+# Create once before first deploy:
+#   fly volumes create fdt_api_data --region sin --size 2 --config fly.api.toml
+[mounts]
+  source                    = "fdt_api_data"
+  destination               = "/app/data"
+  auto_extend_size_threshold = 80     # extend when 80% full
+
+[env]
+  FDT_ENVIRONMENT          = "production"
+  FDT_DEMO_MODE            = "true"
+  FDT_DEMO_TICK_SECONDS    = "1.2"
+  FDT_SEED_ON_BOOT         = "true"   # required: no shell to run `python -m app.seed.run`
+  FDT_LOG_LEVEL            = "INFO"
+  FDT_ML_VARIANT           = "all"
+  FDT_ML_DATASET           = "FD001"
+  FDT_ML_FALLBACK          = "true"   # KEY for free tier: XGBoost stays unloaded → ~120MB RAM usage
+  FDT_DATA_DIR             = "/app/data"
+  FDT_RUL_CAP              = "125"
+  # 1-hour telemetry window — ~141 MB steady state, safe on 2 GB volume.
+  # (Full month = ~93 GB; 1 h is 17× the cycles one engine produces.)
+  FDT_TELEMETRY_RETENTION_HOURS    = "1"
+  FDT_RETENTION_INTERVAL_SECONDS   = "300"
+  # Same-origin proxy: browser never calls API cross-origin; leave CORS empty.
+  # Update this to your web app's public URL for WebSocket origin check.
+  FDT_CORS_ORIGINS         = "https://fdt-web.fly.dev"
+  # Fly Postgres free tier caps at 20 connections; keep pool small.
+  FDT_DB_POOL_SIZE         = "3"
+  FDT_DB_MAX_OVERFLOW      = "2"
+
+# ── Secrets (NEVER put real values here — use `fly secrets set`) ─────────────
+# fly secrets set --app fdt-api \
+#   FDT_JWT_SECRET="$(openssl rand -hex 32)" \
+#   FDT_DATABASE_URL="postgresql+psycopg://user:pass@host/dbname"
+
+[[http_service]]
+  # Exposed only on Fly's private WireGuard network (flycast), not the public internet.
+  # The web container resolves `fdt-api.flycast` over Fly's private 6PN mesh.
+  internal_port        = 8000
+  force_https          = false        # private-only; TLS termination is at the web tier
+  auto_stop_machines   = "stop"       # stop when idle to save free-tier hours
+  auto_start_machines  = true         # cold-start on first request (~2–5s)
+  min_machines_running = 0            # scale to zero on free plan
+
+  [http_service.concurrency]
+    type       = "requests"
+    soft_limit = 25
+    hard_limit = 30
+
+[[http_service.checks]]
+  # /healthz: < 5ms, no DB round-trip on the liveness path (performance budget)
+  interval     = "30s"
+  timeout      = "5s"
+  grace_period = "40s"                # matches Dockerfile HEALTHCHECK start-period
+  method       = "GET"
+  path         = "/healthz"

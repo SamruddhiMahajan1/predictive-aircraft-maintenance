@@ -29,12 +29,15 @@ import { clamp } from '../lib/math.js';
 const HISTORY_MAX = 61;
 
 // Fleet-wide reads do not change between ticks, so they are polled rather than
-// pushed. 3 s is well inside the 1.2 s tick and keeps eight aircraft from turning
-// into eight requests a second.
-const POLL_MS = 3000;
+// pushed. 8 s (was 3 s): engine values that actually move every 1.2 s arrive over
+// the WebSocket, so polling faster only multiplied DB load on the free tier —
+// five endpoints × every open tab — while the panels showed the same numbers.
+// The socket still drives per-tick freshness between polls.
+const POLL_MS = 8000;
 
 let pollTimer = null;
 let stopped = false;
+let pollInFlight = false;
 
 // Part health keyed by the API's part codes, mapped onto the UI's `eng` key.
 const asUiPart = (code) => (code === 'engine' ? 'eng' : code);
@@ -149,9 +152,14 @@ function pushHistory(e, cycle, health) {
 
 /**
  * Read every fleet-wide endpoint and fold it into the fleet entries.
+ * Concurrent callers (interval poll + WS work-order events + reconnect) share
+ * one in-flight burst instead of stacking duplicate 5-endpoint storms.
  * @returns {Promise<boolean>} whether the API answered at all
  */
-export async function refreshFleet() {
+let fleetInFlight = null;
+export function refreshFleet() {
+  if (fleetInFlight) return fleetInFlight;
+  fleetInFlight = (async () => {
   // Stamped before the requests go out, not when they come back — the comparison in
   // applyAircraftList is against socket frames that arrived while this was in flight.
   const issuedAt = Date.now();
@@ -178,6 +186,8 @@ export async function refreshFleet() {
   derived.schedule = schedule?.items || [];
   derived.fetchedAt = Date.now();
   return true;
+  })().finally(() => { fleetInFlight = null; });
+  return fleetInFlight;
 }
 
 /* ── per-aircraft detail ────────────────────────────────────────────────────── */
@@ -286,6 +296,15 @@ export function startServerState() {
 
   const pump = async () => {
     if (stopped) return;
+    // A hidden tab keeps its timers throttled but not stopped — without this a
+    // laptop left open overnight queues overlapping 5-endpoint bursts that all
+    // fire on focus, hammering a cold free-tier DB exactly when it is slowest.
+    if (typeof document !== 'undefined' && document.hidden) return;
+    // On a slow cold boot one poll can take longer than the interval. Without
+    // the guard, bursts pile up concurrently and every panel waits behind five
+    // duplicate in-flight polls.
+    if (pollInFlight) return;
+    pollInFlight = true;
     try {
       if (await refreshFleet()) {
         setApiReachable(true);
@@ -296,16 +315,24 @@ export function startServerState() {
       }
     } catch (err) {
       console.warn('[server-state] poll failed:', err);
+    } finally {
+      pollInFlight = false;
     }
+  };
+
+  const onVisible = () => {
+    if (!document.hidden) pump();
   };
 
   app.onBackendChange = pump;
   pollTimer = setInterval(pump, POLL_MS);
+  document.addEventListener('visibilitychange', onVisible);
   pump();
 
   return () => {
     stopped = true;
     app.onBackendChange = null;
+    document.removeEventListener('visibilitychange', onVisible);
     if (pollTimer) clearInterval(pollTimer);
     pollTimer = null;
   };

@@ -1,0 +1,51 @@
+# Fly.io configuration for the Fleet Digital Twin web tier (nginx BFF + React SPA).
+#
+# Deploy with:
+#   fly apps create fdt-web --org personal
+#   fly deploy --config fly.web.toml
+#
+# nginx proxies /api and /ws to fdt-api.flycast:8000 over Fly's private
+# WireGuard network, so both tiers share one public origin — keeping REST
+# and WebSocket same-origin and eliminating CORS entirely.
+
+app = "fdt-web"
+primary_region = "sin"          # must match fdt-api's region for low-latency internal routing
+
+[build]
+  dockerfile = "docker/frontend/Dockerfile"
+  [build.args]
+    BUILDKIT_INLINE_CACHE = "1"
+
+[env]
+  # Overrides the default `api` Compose service name so nginx resolves the
+  # API over Fly's private WireGuard mesh instead of a Compose service alias.
+  # Format: <api-app-name>.flycast  (must match `app` in fly.api.toml)
+  FDT_API_HOST = "fdt-api.flycast"
+
+# ── Machine sizing ────────────────────────────────────────────────────────────
+# nginx: lightweight static serving + proxy. 256 MB is plenty.
+# The 3D assets (~9 MB total) are served from nginx's local html dir — no CDN needed.
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "256mb"
+
+[[http_service]]
+  internal_port        = 8080     # nginx unprivileged image listens on 8080
+  force_https          = true     # Fly handles TLS termination (Let's Encrypt)
+  auto_stop_machines   = "stop"
+  auto_start_machines  = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type       = "connections"
+    soft_limit = 25
+    hard_limit = 30
+
+# ── Health check ──────────────────────────────────────────────────────────────
+# Proxied by nginx to /healthz on the API (< 5ms, no DB round-trip).
+[[http_service.checks]]
+  interval     = "30s"
+  timeout      = "5s"
+  grace_period = "15s"
+  method       = "GET"
+  path         = "/healthz"
