@@ -76,10 +76,14 @@ def fleet_summary(db: Session, window: int = 60) -> dict:
     )
     summary["series"] = aggregation.fleet_series(snapshots, window, lowest_id)
 
+    # One AVG per fleet, not one per aircraft: the per-row loop used to add a
+    # query per aircraft to the most-polled endpoint, each paying a cold-DB
+    # round trip on a free-tier deployment.
+    avail_map = repo.availabilities(db, [a.aircraft_ref_id for a in aircraft_rows])
     availabilities = [
-        repo.availability(db, a.aircraft_ref_id) for a in aircraft_rows
+        v for v in (avail_map.get(a.aircraft_ref_id) for a in aircraft_rows)
+        if v is not None
     ]
-    availabilities = [v for v in availabilities if v is not None]
     summary["avg_availability"] = (
         round(sum(availabilities) / len(availabilities), 4) if availabilities else None
     )
@@ -91,9 +95,12 @@ def fleet_summary(db: Session, window: int = 60) -> dict:
 
 # ── 28 ─────────────────────────────────────────────────────────────────────────
 def list_aircraft(db: Session, risk: str | None = None, ready: bool | None = None) -> dict:
+    # Every aircraft's parts in one query: the per-aircraft call used to add 8
+    # round trips to each poll, all serialised on one free-tier worker.
+    parts_by_aircraft = repo.all_parts_by_aircraft(db)
     items = []
     for a in repo.list_aircraft(db):
-        rows = repo.parts_for_aircraft(db, a.id)
+        rows = parts_by_aircraft.get(a.id, [])
         by_part = {r.part.code: r for r in rows}
         engine = by_part.get("engine")
         item = {

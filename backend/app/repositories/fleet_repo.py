@@ -6,7 +6,7 @@ tests/performance/test_budgets.py (docs/11 §5.3).
 from __future__ import annotations
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from ..models.alert import Alert
 from ..models.fleet import Aircraft, AircraftPart, Part
@@ -58,11 +58,17 @@ def parts_for_aircraft(db: Session, aircraft_id: int) -> list[AircraftPart]:
 
 
 def all_parts_by_aircraft(db: Session) -> dict[int, list[AircraftPart]]:
-    """Every aircraft's parts in ONE query — the N+1 guard for heatmap/schedule."""
+    """Every aircraft's parts in ONE query — the N+1 guard for heatmap/schedule.
+
+    `selectinload` pulls the five `Part` rows in the same round trip: without it
+    every `row.part.code` access lazy-loads, which is a per-row query storm the
+    first time a session touches the fleet.
+    """
     grouped: dict[int, list[AircraftPart]] = {}
     rows = db.execute(
         select(AircraftPart)
         .join(Part, Part.id == AircraftPart.part_id)
+        .options(selectinload(AircraftPart.part))
         .order_by(AircraftPart.aircraft_id, Part.sort_order)
     ).scalars()
     for row in rows:
@@ -152,19 +158,40 @@ def engine_history(
 
 
 def fleet_snapshots(db: Session, window: int) -> dict[int, list[dict]]:
-    """Last `window` engine snapshots per aircraft, in one query."""
-    rows = db.execute(
-        select(HealthSnapshot.aircraft_id, HealthSnapshot.cycle, HealthSnapshot.health)
+    """Last `window` engine snapshots per aircraft, in one query.
+
+    Windowed in SQL (ROW_NUMBER per aircraft), not sliced in Python: the old
+    version scanned the entire append-only history on every /fleet/summary call,
+    and that table grows at ~36 KB/s under the replay engine — the most-polled
+    endpoint had become a full table scan that got slower every hour.
+    """
+    ranked = (
+        select(
+            HealthSnapshot.aircraft_id,
+            HealthSnapshot.cycle,
+            HealthSnapshot.health,
+            func.row_number()
+            .over(
+                partition_by=HealthSnapshot.aircraft_id,
+                order_by=HealthSnapshot.cycle.desc(),
+            )
+            .label("rn"),
+        )
         .join(Part, Part.id == HealthSnapshot.part_id)
         .where(Part.code == "engine")
-        .order_by(HealthSnapshot.aircraft_id, HealthSnapshot.cycle)
+        .subquery()
+    )
+    rows = db.execute(
+        select(ranked.c.aircraft_id, ranked.c.cycle, ranked.c.health)
+        .where(ranked.c.rn <= window)
+        .order_by(ranked.c.aircraft_id, ranked.c.cycle)
     ).all()
     grouped: dict[int, list[dict]] = {}
     for aircraft_id, cycle, health in rows:
         grouped.setdefault(aircraft_id, []).append(
             {"cycle": cycle, "health": float(health)}
         )
-    return {k: v[-window:] for k, v in grouped.items()}
+    return grouped
 
 
 # ── maintenance ────────────────────────────────────────────────────────────────
@@ -277,6 +304,27 @@ def recent_records(
         .limit(limit)
     ).all()
     return [(r, r.agency_ref_id) for r in rows]
+
+
+def availabilities(db: Session, aircraft_ref_ids: list[int]) -> dict[int, float]:
+    """Mean availability per reference id in ONE query — the N+1 guard for
+    fleet_summary, which used to issue one AVG per aircraft."""
+    if not aircraft_ref_ids:
+        return {}
+    rows = db.execute(
+        select(
+            FlightOpsMonthly.aircraft_ref_id,
+            func.avg(
+                FlightOpsMonthly.days_available
+                / func.nullif(
+                    FlightOpsMonthly.days_available + FlightOpsMonthly.days_unavailable, 0
+                )
+            ),
+        )
+        .where(FlightOpsMonthly.aircraft_ref_id.in_(aircraft_ref_ids))
+        .group_by(FlightOpsMonthly.aircraft_ref_id)
+    ).all()
+    return {ref: round(float(value), 4) for ref, value in rows if value is not None}
 
 
 def availability(db: Session, aircraft_ref_id: int) -> float | None:

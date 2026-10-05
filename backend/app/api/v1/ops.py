@@ -34,6 +34,19 @@ def healthz(request: Request):
     in `status` rather than hidden behind an "ok".
     """
     model = model_store.handle().describe()
+    # Instant while the background init is still running: Render's health check
+    # must get a 200 in milliseconds, and a cold external database can take
+    # seconds to answer its first SELECT — probing it here turned every cold
+    # boot into a failed health check. `db` stays a bool for the schema; False
+    # with status `starting` means "not verified yet", not "down".
+    if not getattr(request.app.state, "startup_done", True):
+        return {
+            "status": "starting",
+            "db": False,
+            "model": model,
+            "replay": replay.status(),
+            "retention": status_of(getattr(request.app.state, "retention", None)),
+        }
     db_ok = _db_ok()
     return {
         # db_ok is excluded deliberately: an unreachable database is a separate

@@ -37,12 +37,21 @@ def get_engine(settings: Settings | None = None):
     global _engine
     if _engine is None:
         s = settings or get_settings()
+        # Bound the TCP connect so a cold/sleeping managed database fails fast
+        # instead of hanging a request (and Render's health check) for the OS
+        # default. sqlite has no such parameter, so only send it for Postgres.
+        connect_args = (
+            {"connect_timeout": 5}
+            if str(s.database_url).startswith(("postgresql", "postgres"))
+            else {}
+        )
         _engine = create_engine(
             s.database_url,
             echo=s.db_echo,
             pool_pre_ping=True,
             pool_size=s.db_pool_size,
             max_overflow=s.db_max_overflow,
+            connect_args=connect_args,
         )
     return _engine
 

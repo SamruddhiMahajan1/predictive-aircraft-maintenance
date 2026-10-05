@@ -109,11 +109,19 @@ else
   exit 2
 fi
 
-HZ=$(healthz)
+HZ=$(wait_for_health 40)
 if [[ -z "$HZ" ]]; then
   bad "GET /healthz returned nothing" "is the API listening on $BASE?"
   exit 2
 fi
+# Lifespan yields before the background init (model, C-MAPSS, seed) finishes, so
+# /healthz honestly reports `starting` for the first seconds. Wait for the real
+# verdict instead of asserting against a boot in progress.
+for ((i = 0; i < 40; i++)); do
+  [[ "$(jq -r '.status // "starting"' <<<"$HZ")" != "starting" ]] && break
+  sleep 3
+  HZ=$(healthz)
+done
 
 # ═══A. model loaded ════════════════════════════════════════════════════════════
 section "A. model is loaded, not the fallback"

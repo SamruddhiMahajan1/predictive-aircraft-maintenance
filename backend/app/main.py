@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -61,6 +61,40 @@ async def _seed_if_empty(settings: Settings) -> None:
     log.info("boot seed complete")
 
 
+async def _background_init(app: FastAPI, settings: Settings) -> None:
+    """Heavy boot work, off the readiness path.
+
+    Runs after the app starts accepting traffic so /healthz answers during a
+    cold boot instead of going dark for the 1-3 min a free-tier instance spends
+    importing xgboost, parsing C-MAPSS and seeding. Endpoints stay correct while
+    it runs: the model serves the deterministic fallback until loaded, the replay
+    refuses to start until C-MAPSS is present, and /healthz reports `starting`.
+    """
+    try:
+        # The two heavy reads — xgboost import + booster load + warmup inference,
+        # and the C-MAPSS np.loadtxt parse. Both are CPU/file bound, so they go to
+        # threads and run concurrently; the loop stays responsive while they finish.
+        handle, _ = await asyncio.gather(
+            asyncio.to_thread(model_store.load, settings),
+            asyncio.to_thread(cmapss.load, settings),
+        )
+        if handle.ready:
+            await asyncio.to_thread(model_store.warmup, handle)
+            log.info("model loaded: %s (mae=%s)", handle.version, handle.mae)
+        else:
+            log.warning("running deterministic fallback: %s", (handle.error or "")[:200])
+
+        # Seed before the replay engine: the engine walks `Aircraft`, so it has to
+        # find the fleet already present rather than racing to populate it.
+        await _seed_if_empty(settings)
+        await start_replay()
+    except Exception:  # noqa: BLE001 — a failed init must not kill the process
+        log.exception("background startup init failed")
+        app.state.startup_error = "startup init failed; serving degraded"
+    finally:
+        app.state.startup_done = True
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
@@ -68,25 +102,13 @@ async def lifespan(app: FastAPI):
 
     log.info("starting %s", settings.app_name)
 
-    # The two heavy reads — xgboost import + booster load + warmup inference, and
-    # the C-MAPSS np.loadtxt parse — used to run serially on the event loop before
-    # traffic was accepted, stalling the Render health check for 1-3 min on a cold
-    # boot. Both are CPU/file bound, so they go to threads and run concurrently;
-    # the loop stays responsive while they finish.
-    handle, _ = await asyncio.gather(
-        asyncio.to_thread(model_store.load, settings),
-        asyncio.to_thread(cmapss.load, settings),
-    )
-    if handle.ready:
-        await asyncio.to_thread(model_store.warmup, handle)
-        log.info("model loaded: %s (mae=%s)", handle.version, handle.mae)
-    else:
-        log.warning("running deterministic fallback: %s", (handle.error or "")[:200])
+    # Readiness gate for /healthz: False until the background init finishes.
+    # Render's health check hits /healthz, which answers instantly in either
+    # state — the service no longer goes dark during a cold boot.
+    app.state.startup_done = False
+    app.state.startup_error = None
 
     bus.bind_loop()
-    # Seed before the replay engine: the engine walks `Aircraft`, so it has to find the
-    # fleet already present rather than racing to populate it.
-    await _seed_if_empty(settings)
 
     # Per-app, not a module singleton: the pruner's task belongs to this app's event
     # loop, so an instance shared across every app built in the process cannot be
@@ -94,11 +116,15 @@ async def lifespan(app: FastAPI):
     pruner = RetentionPruner(settings)
     app.state.retention = pruner
     await pruner.start()
-    await start_replay()
+
+    init_task = asyncio.create_task(_background_init(app, settings), name="startup-init")
 
     try:
         yield
     finally:
+        init_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await init_task
         await stop_replay()
         await pruner.stop()
         log.info("shutdown complete")
