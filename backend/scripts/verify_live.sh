@@ -48,16 +48,12 @@ need python3
 need jq
 need docker
 
-q() { curl -sS --max-time 15 -H "authorization: Bearer $1" "$BASE$2"; }
+q() { curl -sS --max-time 15 "$BASE$1"; }
 
 # Separate from q() on purpose: /api/v1/demo/{pause,resume,tick} are POST-only. Sending
 # them as GET returns 405 and the demo is silently never controlled, which looks exactly
 # like "pause does not work".
-qp() { curl -sS --max-time 15 -X POST -H "authorization: Bearer $1" "$BASE$2"; }
-
-login() { curl -sS --max-time 10 -X POST "$BASE/api/v1/auth/login" \
-  -H 'content-type: application/json' \
-  -d "{\"username\":\"$1\",\"password\":\"$2\"}" | jq -r '.access_token // empty'; }
+qp() { curl -sS --max-time 15 -X POST "$BASE$1"; }
 
 healthz() { curl -sS --max-time 10 "$BASE/healthz" 2>/dev/null; }
 
@@ -101,7 +97,7 @@ PY
 
 predict() {
   curl -sS --max-time 20 -X POST "$BASE/api/v1/internal/ml/predict" \
-    -H "authorization: Bearer $OFFICER" -H 'content-type: application/json' -d "$1"
+    -H 'content-type: application/json' -d "$1"
 }
 
 # ═══0. preconditions ════════════════════════════════════════════════════════════
@@ -135,15 +131,6 @@ fi
 
 WIDTH=$(docker logs "$API_CONTAINER" 2>&1 | grep -o 'features=[0-9]*' | tail -1)
 check "booster width is the 32-column pooled contract" "${WIDTH#features=}" "32"
-
-# ═══0b. authenticate ══════════════════════════════════════════════════════════
-section "0b. authenticate"
-TOKEN=$(login commander commander123)
-OFFICER=$(login officer officer123)
-if [[ -n "$TOKEN" ]]; then ok "commander token (audit + demo endpoints)"; else
-  bad "commander login failed"; exit 2
-fi
-if [[ -n "$OFFICER" ]]; then ok "officer token (ml predict)"; else bad "officer login failed"; fi
 
 # ═══B. real predictions ════════════════════════════════════════════════════════
 section "B. predictions come from the booster, not rul = 125 - cycle"
@@ -220,7 +207,7 @@ section "E. replay is real telemetry"
 # /api/v1/demo/status declares response_model=DemoStatus, which STRIPS the extra
 # replay_subset/subsets keys that /healthz returns for the very same dict. So the
 # staged-subset evidence is read from /healthz, not from here.
-ST=$(q "$TOKEN" /api/v1/demo/status)
+ST=$(q /api/v1/demo/status)
 HR=$(healthz)
 check "cmapss_loaded" "$(jq -r '.cmapss_loaded' <<<"$ST")" "true"
 check "replay_subset" "$(jq -r '.replay.replay_subset' <<<"$HR")" "FD001"
@@ -241,20 +228,20 @@ done
 latest_ts() { psql_at "SELECT coalesce(to_char(max(recorded_at), 'HH24:MI:SS.MS'), 'none') FROM engine_telemetry;"; }
 T1=$(latest_ts)
 
-qp "$TOKEN" /api/v1/demo/pause >/dev/null
+qp /api/v1/demo/pause >/dev/null
 sleep 2
-P1=$(q "$TOKEN" /api/v1/demo/status | jq -r '.tick')
+P1=$(q /api/v1/demo/status | jq -r '.tick')
 sleep 3
-P2=$(q "$TOKEN" /api/v1/demo/status | jq -r '.tick')
+P2=$(q /api/v1/demo/status | jq -r '.tick')
 check "tick frozen while paused" "$P1" "$P2"
 
 # /demo/tick pauses the engine as a side effect, so the read-back is taken while
 # paused and the delta is exactly 1.
-qp "$TOKEN" /api/v1/demo/tick >/dev/null
-P3=$(q "$TOKEN" /api/v1/demo/status | jq -r '.tick')
+qp /api/v1/demo/tick >/dev/null
+P3=$(q /api/v1/demo/status | jq -r '.tick')
 check "manual tick advances exactly 1" "$P3" "$((P2 + 1))"
 
-qp "$TOKEN" /api/v1/demo/resume >/dev/null
+qp /api/v1/demo/resume >/dev/null
 sleep 5
 T2=$(latest_ts)
 if [[ "$T2" != "$T1" && "$T2" != "none" ]]; then
@@ -275,7 +262,7 @@ fi
 # ═══F. business rules ══════════════════════════════════════════════════════════
 section "F. business rules on live data"
 # GET /api/v1/aircraft returns {"items": [...], "total": N}, not a bare array.
-AL=$(q "$OFFICER" /api/v1/aircraft | jq '.items')
+AL=$(q /api/v1/aircraft | jq '.items')
 jq -r '.[] | "        \(.code)  cycle \(.current_cycle)  rul \(.rul)  health \(.engine_health)  risk \(.risk)  ready \(.mission_ready)  worst \(.worst_part // "-")"' <<<"$AL"
 
 # mission_ready must track rul > 30 (strict) AND every part health > 0.4.
@@ -315,12 +302,12 @@ section "G. websocket stream"
 if ! python3 -c 'import websockets' 2>/dev/null; then
   info "SKIPPED - python 'websockets' not installed (pip install websockets)"
 else
-  WS=$(python3 - "$TOKEN" <<'PY'
-import asyncio, json, sys
+  WS=$(python3 - <<'PY'
+import asyncio, json
 import websockets
 
 async def main():
-    url = f"ws://localhost:8000/ws/fleet?token={sys.argv[1]}"
+    url = "ws://localhost:8000/ws/fleet"
     async with websockets.connect(url, open_timeout=10) as ws:
         first = json.loads(await asyncio.wait_for(ws.recv(), 10))
         kinds, seqs = [first.get("type")], [first.get("seq")]
@@ -362,7 +349,7 @@ fi
 
 # ═══I. audit ═══════════════════════════════════════════════════════════════════
 section "I. audit trail (read-only)"
-AU=$(q "$TOKEN" "/api/v1/audit?limit=200")
+AU=$(q "/api/v1/audit?limit=200")
 N=$(jq -r '.items | length' <<<"$AU" 2>/dev/null)
 info "$N audit rows"
 if [[ "${N:-0}" -gt 0 ]]; then
@@ -396,7 +383,6 @@ else
       check "status becomes degraded"      "$(jq -r '.status'         <<<"$D")" "degraded"
       check "model.fallback becomes true"  "$(jq -r '.model.fallback' <<<"$D")" "true"
       checkne "model.error is populated"   "$(jq -r '.model.error // ""' <<<"$D")" ""
-      OFFICER=$(login officer officer123)
       RESP=$(predict "$(mkbody '')")
       check "prediction reports degraded" "$(jq -r '.model.degraded' <<<"$RESP")" "true"
       check "prediction reports fallback" "$(jq -r '.model.fallback' <<<"$RESP")" "true"
@@ -413,7 +399,6 @@ else
       check "recovered to not-fallback" "$(jq -r '.model.fallback' <<<"$RESP2")" "false"
       check "recovered to model loaded" "$(jq -r '.model.loaded'   <<<"$RESP2")" "true"
     fi
-    OFFICER=$(login officer officer123)
   fi
 else
   section "H. NEGATIVE TEST - fallback when artifacts are hidden"

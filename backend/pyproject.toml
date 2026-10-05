@@ -15,9 +15,6 @@ dependencies = [
   "sqlalchemy>=2.0.36",
   "alembic>=1.14",
   "psycopg[binary]>=3.2",
-  "pyjwt>=2.9",
-  "passlib[bcrypt]>=1.7.4",
-  "bcrypt<4.1",
   "xgboost>=2.1",
   "numpy>=1.26",
 ]

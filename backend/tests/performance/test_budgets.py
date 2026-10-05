@@ -60,14 +60,13 @@ def _p95(samples: list[float]) -> float:
 
 
 @pytest.mark.parametrize("path", READ_PATHS)
-def test_get_endpoints_meet_the_200ms_budget(client, auth, path):
-    headers = auth("viewer")
+def test_get_endpoints_meet_the_200ms_budget(client, path):
     for _ in range(WARMUP):
-        client.get(path, headers=headers)
+        client.get(path)
     samples = []
     for _ in range(ITERATIONS):
         started = time.perf_counter()
-        response = client.get(path, headers=headers)
+        response = client.get(path)
         samples.append((time.perf_counter() - started) * 1000)
         assert response.status_code == 200, path
     p95 = _p95(samples)
@@ -87,16 +86,15 @@ def _ml_payload(size: int = 30) -> dict:
             "persist": False}
 
 
-def test_ml_endpoint_meets_the_100ms_budget(client, auth):
+def test_ml_endpoint_meets_the_100ms_budget(client):
     """Both the reported inference latency and the wall-clock round trip."""
     payload = _ml_payload()
     inference, round_trip = [], []
     for _ in range(WARMUP):
-        client.post("/api/v1/internal/ml/predict", headers=auth("officer"), json=payload)
+        client.post("/api/v1/internal/ml/predict", json=payload)
     for _ in range(ITERATIONS):
         started = time.perf_counter()
-        body = client.post("/api/v1/internal/ml/predict",
-                           headers=auth("officer"), json=payload).json()
+        body = client.post("/api/v1/internal/ml/predict", json=payload).json()
         round_trip.append((time.perf_counter() - started) * 1000)
         inference.append(body["latency_ms"])
     assert _p95(inference) < ML_BUDGET_MS, f"inference p95 {_p95(inference):.1f}ms"
@@ -113,26 +111,24 @@ def test_ml_endpoint_meets_the_100ms_budget(client, auth):
     "/api/v1/fleet/actions",
     "/api/v1/maintenance/schedule",
 ])
-def test_query_count_is_bounded_and_not_per_row(client, auth, query_counter, path):
+def test_query_count_is_bounded_and_not_per_row(client, query_counter, path):
     """The N+1 guard: a query inside a comprehension shows up here as a count
     that grows with the fleet. The ceiling allows generous headroom."""
-    headers = auth("viewer")
-    client.get(path, headers=headers)          # warm caches/session
+    client.get(path)          # warm caches/session
     query_counter["n"] = 0
-    client.get(path, headers=headers)
+    client.get(path)
     statements = query_counter["n"]
     # 8 aircraft x 5 parts = 40 rows; a per-row loop would exceed 100 statements
     assert statements <= 40, f"{path} issued {statements} statements — possible N+1"
 
 
-def test_summary_does_not_scale_queries_with_the_fleet(client, auth, query_counter):
+def test_summary_does_not_scale_queries_with_the_fleet(client, query_counter):
     """fleet_summary touches every aircraft; the count must stay flat."""
-    headers = auth("viewer")
-    client.get("/api/v1/fleet/summary", headers=headers)
+    client.get("/api/v1/fleet/summary")
     query_counter["n"] = 0
-    client.get("/api/v1/fleet/summary", headers=headers)
+    client.get("/api/v1/fleet/summary")
     per_fleet_pass = query_counter["n"]
-    detail = client.get("/api/v1/aircraft", headers=headers).json()
+    detail = client.get("/api/v1/aircraft").json()
     assert per_fleet_pass < len(detail["items"]) * 2 + 20
 
 

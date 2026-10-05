@@ -12,14 +12,6 @@ COPY frontend/ ./
 # VITE_API_PROXY_TARGET only affects the dev server; the production bundle is
 # same-origin by design (see src/lib/api.js and nginx.conf), so there is no API URL
 # to bake in and the image is environment-independent.
-#
-# VITE_DEMO_MODE is the one exception, and it has to be a build argument because Vite
-# inlines it at build time. It gates the "Continue as the demo commander" shortcut on the
-# sign-in screen, which ships the seeded fixture credentials to anyone who loads the page.
-# Unset — the default — means the shortcut is absent, so a public deployment cannot leak
-# them. A local `make up` can set VITE_DEMO_MODE=true to keep the one-click demo.
-ARG VITE_DEMO_MODE=false
-ENV VITE_DEMO_MODE=${VITE_DEMO_MODE}
 RUN npm run build
 
 

@@ -1,5 +1,5 @@
 import { applyThemeColors } from '../lib/colors.js';
-import { postAcknowledgeAlert, postCreateWorkOrder, getUser, onAuthChange } from '../lib/api.js';
+import { postAcknowledgeAlert, postCreateWorkOrder } from '../lib/api.js';
 import { fleet } from '../data/fleet.js';
 
 // Single mutable app state shared by the React UI and the three.js scene.
@@ -24,20 +24,8 @@ export const app = {
   // and /healthz stays green, so this is the only place the UI learns that a number
   // on screen is not the model's. `null` until the first event arrives.
   model: { version: null, fallback: false, degraded: false, reason: null, staleTicks: 0 },
-  // Real signed-in identity. Previously a hardcoded stub that never changed, so the
-  // role badge lied about who was operating the console.
-  user: getUser(),
   serverAlerts: [],       // live alerts pushed over the WebSocket, newest first
 };
-
-// Keep the navbar in sync with the session even when auth changes outside an action
-// (token expiry re-login, explicit sign-out).
-onAuthChange((user) => {
-  if (user?.username !== app.user?.username) {
-    app.user = user;
-    emit();
-  }
-});
 
 let version = 0;
 const subs = new Set();
@@ -171,11 +159,6 @@ export function setBackendStatus(connected) {
   // The read endpoints are polled rather than pushed, so a reconnect has to kick one
   // immediately or the panels sit on pre-disconnect numbers.
   if (connected && !was) app.onBackendChange?.();
-}
-
-export function setUser(user) {
-  app.user = user;
-  emit();
 }
 
 export function toggleTheme() {

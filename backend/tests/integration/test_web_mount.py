@@ -71,7 +71,7 @@ def dist(tmp_path):
 def web_client(dist, database, monkeypatch):
     """`create_app()` with the bundle present — the single-service deployment shape.
 
-    `database` migrates and seeds; without it the login assertion below would hit a
+    `database` migrates and seeds; without it the fleet assertion below would hit a
     schema that does not exist.
     """
     monkeypatch.setattr(
@@ -86,8 +86,7 @@ def bare_client(tmp_path, database, monkeypatch):
     """The identical app with no bundle — the Compose shape, and the control case."""
     monkeypatch.setattr(
         "app.main.get_settings",
-        lambda: Settings(web_dist=tmp_path / "absent", demo_mode=False),
-    )
+        lambda: Settings(web_dist=tmp_path / "absent", demo_mode=False))
     with TestClient(create_app()) as client:
         yield client
 
@@ -120,10 +119,9 @@ def test_3d_assets_are_served(web_client):
         "/readyz",
         "/openapi.json",     # registered in FastAPI.__init__, before any mount
         "/docs",
-        "/api/v1/auth/login",
+        "/api/v1/fleet/summary",
         "/api/v1/fleet",
-    ],
-)
+    ])
 def test_api_routes_are_not_shadowed(web_client, bare_client, path):
     """The mount must not change how any API path answers.
 
@@ -144,15 +142,6 @@ def test_api_routes_are_not_shadowed(web_client, bare_client, path):
     assert with_bundle.status_code != 404 or without_bundle.status_code == 404
 
 
-def test_login_endpoint_still_works_end_to_end(web_client):
-    response = web_client.post(
-        "/api/v1/auth/login",
-        json={"username": "commander", "password": "commander123"},
-    )
-    assert response.status_code == 200, response.text
-    assert response.json()["token_type"] == "bearer"
-
-
 def test_websocket_route_is_still_registered(web_client):
     """`/ws/fleet` is a websocket route and cannot be reached by TestClient.get.
 
@@ -171,7 +160,7 @@ def test_api_routes_reachable_in_the_route_tree(web_client):
     paths = {
         route.path for route in _flatten(web_client.app.routes) if isinstance(route, Route)
     }
-    for expected in ("/healthz", "/readyz", "/api/v1/auth/login", "/openapi.json"):
+    for expected in ("/healthz", "/readyz", "/api/v1/fleet/summary", "/openapi.json"):
         assert expected in paths, f"{expected} is missing from the route tree"
 
 
@@ -193,13 +182,13 @@ def test_web_mounts_never_claim_a_bare_root(web_client):
 def test_method_mismatch_still_reports_405(web_client, bare_client):
     """Regression: the web build must not turn a method error into a 404.
 
-    This is the exact failure a `StaticFiles` mount at "/" causes — a GET to the
-    POST-only login partially matches the router, falls through to the mount, and comes
+    This is the exact failure a `StaticFiles` mount at "/" causes — a GET to a
+    POST-only route partially matches the router, falls through to the mount, and comes
     back as "Not Found". Asserted against the unmounted app so it cannot pass by
     coincidence if the framework's own 405 behaviour ever changes.
     """
-    response = web_client.get("/api/v1/auth/login")
-    assert response.status_code == bare_client.get("/api/v1/auth/login").status_code
+    response = web_client.get("/api/v1/demo/pause")
+    assert response.status_code == bare_client.get("/api/v1/demo/pause").status_code
     assert response.status_code == 405, (
         f"expected 405 Method Not Allowed, got {response.status_code}"
     )
@@ -221,14 +210,12 @@ def test_shell_route_follows_the_api_routers(web_client):
     shell = next(
         (i for i, r in enumerate(routes)
          if isinstance(r, Route) and r.path == "/" and r.name == "web_index"),
-        None,
-    )
+        None)
     assert shell is not None, "the web shell route is missing"
 
     last_router = max(
         (i for i, r in enumerate(routes) if type(r).__name__ == "_IncludedRouter"),
-        default=-1,
-    )
+        default=-1)
     assert shell > last_router, (
         f"the web shell is at {shell}, at or before the API routers (last at "
         f"{last_router})"

@@ -119,7 +119,6 @@ test: ## Full pytest suite against a disposable database
 	@$(MAKE) build-api
 	@$(COMPOSE) run --rm \
 		-e FDT_TEST_DATABASE_URL='postgresql+psycopg://fdt:fdt@db-test:5432/fdt_test' \
-		-e FDT_JWT_SECRET=test-secret-0123456789abcdefghijklmnop \
 		-e FDT_ENVIRONMENT=development \
 		-e FDT_DEMO_MODE=false \
 		-e FDT_ML_FALLBACK=true \

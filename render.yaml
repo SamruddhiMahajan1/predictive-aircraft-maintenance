@@ -58,11 +58,10 @@ services:
       - key: NODE_VERSION
         value: "20.11.1"
 
-      # `production` is honest here and requires a generated FDT_JWT_SECRET (below),
-      # which is the only thing that setting actually guards. It previously had to claim
+      # `production` is honest here. It previously had to claim
       # `staging` purely to be allowed to run with FDT_DEMO_MODE=true, since the replay
       # engine is what feeds the live twin — a misreport that made the deployment's real
-      # security posture invisible in its own config.
+      # posture invisible in its own config.
       - key: FDT_ENVIRONMENT
         value: production
       - key: FDT_DEMO_MODE
@@ -71,9 +70,9 @@ services:
         value: INFO
 
       # The only origin that may call this API. ws.py skips its origin check entirely
-      # when this is empty, which would let any site open /ws/fleet with a valid token;
-      # setting it to the service's own URL keeps the check meaningful. Render PR
-      # previews get random onrender.com URLs and need their origin added here.
+      # when this is empty, which would let any site open /ws/fleet; setting it to the
+      # service's own URL keeps the check meaningful. Render PR previews get random
+      # onrender.com URLs and need their origin added here.
       - key: FDT_CORS_ORIGINS
         value: https://fleet-digital-twin.onrender.com
 
@@ -119,9 +118,6 @@ services:
       # This no-ops once any aircraft exists, so it costs one COUNT per cold start.
       - key: FDT_SEED_ON_BOOT
         value: "true"
-
-      - key: FDT_JWT_SECRET
-        generateValue: true
 
       - key: FDT_DATABASE_URL
         sync: false

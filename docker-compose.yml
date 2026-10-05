@@ -80,7 +80,6 @@ services:
     environment:
       FDT_ENVIRONMENT: ${FDT_ENVIRONMENT:-development}
       FDT_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-fdt}:${POSTGRES_PASSWORD:-fdt}@db:5432/${POSTGRES_DB:-fdt}
-      FDT_JWT_SECRET: ${FDT_JWT_SECRET:?set FDT_JWT_SECRET in .env — see .env.example}
       FDT_LOG_LEVEL: ${FDT_LOG_LEVEL:-INFO}
       # Same-origin in Docker, so no cross-origin allowlist is needed for the browser.
       # This entry exists only for `npm run dev` against the containerised API.
@@ -113,11 +112,6 @@ services:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
-      args:
-        # Gates the demo sign-in shortcut in the bundle. Defaults off, so the committed
-        # fixture credentials are not shipped to whoever loads the page. Set
-        # VITE_DEMO_MODE=true in .env to keep the one-click demo locally.
-        VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
     depends_on:
       api: { condition: service_healthy }
     ports:

@@ -3,163 +3,25 @@
 // In development Vite proxies /api and /ws to the FastAPI container, and in
 // production nginx does the same (see vite.config.js and docker/frontend/nginx.conf).
 // Deriving the base from window.location therefore needs no environment variable and no
-// rebuild to point the app at another host: same-origin also removes CORS from the
-// picture entirely, and keeps the JWT out of the WebSocket URL.
+// rebuild to point the app at another host.
 
 const API_BASE = `${window.location.origin}/api/v1`;
 const WS_BASE = `${window.location.origin.replace(/^http/, 'ws')}/ws/fleet`;
 
-const TOKEN_KEY = 'fdt.token';
-const USER_KEY = 'fdt.user';
-
-// The seeded demo accounts (docs/01 §7) are a documented fixture, not a secret — but they
-// must never be used *silently*. This used to be an automatic fallback: with no token,
-// every API call quietly POSTed commander/commander123 and the console came up already
-// authenticated as the most privileged role. On a public deployment that is an open
-// control room, and the "sign in" path in the UI was never reachable at all.
-//
-// So there is no implicit credential any more, and the demo sign-in is a build-time
-// option: `import.meta.env` is inlined by Vite, so this folds to a constant and a
-// production build deletes the whole branch — including the fixture password, which is
-// otherwise readable in the bundle by anyone who loads the page.
-const DEMO_ENABLED =
-  import.meta.env?.VITE_DEMO_MODE === 'true' ||
-  import.meta.env?.MODE === 'development';
-
-let currentToken = sessionStorage.getItem(TOKEN_KEY);
-let currentUser = readStoredUser();
 let activeWs = null;
 let reconnectTimer = null;
 let reconnectAttempt = 0;
-let consecutiveAuthFailures = 0;
 let liveFilter = null;
 let stopped = false;
 
-// How many consecutive 4401 closes to tolerate before demanding a fresh sign-in. Without
-// a bound, an expired session produced an endless reconnect loop at a 30 s period.
-const MAX_AUTH_FAILURES = 2;
-
-const listeners = new Set();
-
-/** Subscribe to auth-state changes so the navbar badge reflects the real user. */
-export function onAuthChange(fn) {
-  listeners.add(fn);
-  return () => listeners.delete(fn);
-}
-
-function readStoredUser() {
-  try {
-    return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null');
-  } catch {
-    return null;
-  }
-}
-
-function emitAuth() {
-  for (const fn of listeners) fn(currentUser);
-}
-
-function setSession(token, user) {
-  currentToken = token;
-  currentUser = user;
-  if (token) sessionStorage.setItem(TOKEN_KEY, token);
-  else sessionStorage.removeItem(TOKEN_KEY);
-  if (user) sessionStorage.setItem(USER_KEY, JSON.stringify(user));
-  else sessionStorage.removeItem(USER_KEY);
-  emitAuth();
-}
-
-export function getUser() {
-  return currentUser;
-}
-
-export function isDemoMode() {
-  return DEMO_ENABLED;
-}
-
-export function logout() {
-  setSession(null, null);
-  consecutiveAuthFailures = 0;
-}
-
-/**
- * Exchange credentials for a session.
- *
- * @returns {Promise<{ok: true, user: object} | {ok: false, error: string}>} — never
- *   throws, and never signs in anybody the caller did not name.
- */
-export async function login(username, password) {
-  try {
-    const res = await fetch(`${API_BASE}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, password }),
-    });
-    if (res.status === 401) {
-      setSession(null, null);
-      return { ok: false, error: 'Incorrect username or password.' };
-    }
-    if (!res.ok) {
-      setSession(null, null);
-      return { ok: false, error: `Sign-in failed (HTTP ${res.status}).` };
-    }
-    const data = await res.json();
-    setSession(data.access_token, data.user);
-    consecutiveAuthFailures = 0;
-    return { ok: true, user: data.user };
-  } catch (err) {
-    console.warn('[API] login failed:', err);
-    setSession(null, null);
-    return { ok: false, error: 'Could not reach the server.' };
-  }
-}
-
-/**
- * The explicit demo sign-in.
- *
- * Unreachable from a production build — see `DEMO_ENABLED`. The credentials live inside
- * this branch rather than in a module-level constant for that reason: a top-level object
- * is always retained in the bundle, so the password would ship regardless of the flag.
- */
-export async function loginAsDemo() {
-  if (!DEMO_ENABLED) {
-    return { ok: false, error: 'Demo sign-in is not available in this build.' };
-  }
-  return login('commander', 'commander123');
-}
-
-/**
- * The token for an outgoing call, or null.
- *
- * Deliberately does *not* authenticate. It used to log in as the demo commander as a
- * side effect of "getting a token", which meant every fetch path could silently acquire
- * a privileged session. Null propagates: the caller gets a 401-shaped result and the app
- * shows the sign-in screen.
- */
-async function ensureToken() {
-  return currentToken;
-}
-
-async function request(path, { method = 'GET', body, retry = true } = {}) {
-  const token = await ensureToken();
-  if (!token) return { ok: false, status: 401, body: null, unauthenticated: true };
-
+async function request(path, { method = 'GET', body } = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
-      Authorization: `Bearer ${token}`,
       ...(body ? { 'Content-Type': 'application/json' } : {}),
     },
     ...(body ? { body: JSON.stringify(body) } : {}),
   });
-
-  // The JWT has a TTL. On expiry every subsequent call would silently return null
-  // forever, because the token was never cleared — so clear it and let the one
-  // in-flight retry re-authenticate.
-  if (res.status === 401 && retry) {
-    setSession(null, null);
-    return request(path, { method, body, retry: false });
-  }
 
   const payload = res.status === 204 ? null : await res.json().catch(() => null);
   return { ok: res.ok, status: res.status, body: payload };
@@ -326,29 +188,15 @@ export function startLiveFleetSocket(onEvent, onStatus) {
   activeWs = null;
   clearTimeout(reconnectTimer);
 
-  async function connect() {
+  function connect() {
     if (stopped) return;
-    const token = await ensureToken();
-    if (!token) {
-      // Signed out. Retrying cannot help — there is nothing to authenticate with — and
-      // this used to spin forever on a 30 s timer, quietly re-attempting the demo
-      // credentials every half minute. Wait for an actual sign-in instead.
-      onStatus?.(false);
-      return;
-    }
 
     try {
-      // Browsers cannot set headers on a WebSocket handshake, so the JWT necessarily
-      // travels in the query string. It is short-lived, and the endpoint additionally
-      // origin-checks the connection.
-      const ws = new WebSocket(
-        `${WS_BASE}?token=${encodeURIComponent(token)}`,
-      );
+      const ws = new WebSocket(WS_BASE);
       activeWs = ws;
 
       ws.onopen = () => {
         reconnectAttempt = 0;
-        consecutiveAuthFailures = 0;
         // keep-alive: the server answers `ping` with `pong`, which doubles as proof
         // the stream is live rather than merely open.
         ws.send(JSON.stringify({ type: 'ping', payload: {} }));
@@ -369,21 +217,9 @@ export function startLiveFleetSocket(onEvent, onStatus) {
         }
       };
 
-      ws.onclose = (event) => {
+      ws.onclose = () => {
         onStatus?.(false);
         activeWs = null;
-        if (event.code === 4401) {
-          // The token was rejected or expired. Drop it so the UI falls back to the
-          // sign-in screen, and stop retrying: reconnecting with a token the server has
-          // already refused can only fail again.
-          consecutiveAuthFailures += 1;
-          if (consecutiveAuthFailures >= MAX_AUTH_FAILURES) {
-            console.warn('[WS] giving up after repeated 4401; sign in again');
-            setSession(null, null);
-            return;
-          }
-          setSession(null, null);
-        }
         scheduleReconnect(connect);
       };
 

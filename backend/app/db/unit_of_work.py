@@ -74,7 +74,7 @@ class UnitOfWork:
         entity: str,
         entity_id: str | int,
         action: str,
-        actor_name: str,
+        actor_name: str = "system",
         actor_id: int | None = None,
         before: dict[str, Any] | None = None,
         after: dict[str, Any] | None = None,

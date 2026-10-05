@@ -21,7 +21,6 @@ from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
-from .auth import User
 from .fleet import Aircraft, Part
 
 
@@ -129,7 +128,7 @@ class WorkOrder(Base):
     priority: Mapped[str] = mapped_column(priority_enum, default="medium")
     source_ref: Mapped[str | None] = mapped_column(String(12))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow())
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -137,7 +136,6 @@ class WorkOrder(Base):
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="work_orders")
     part: Mapped[Part] = relationship(back_populates="work_orders")
-    created_by_user: Mapped[User | None] = relationship(back_populates="work_orders")
     bookings: Mapped[list[AgencyBooking]] = relationship(back_populates="work_order")
     movements: Mapped[list[StockMovement]] = relationship(back_populates="work_order")
 
@@ -164,14 +162,13 @@ class AgencyBooking(Base):
     lead_time_days: Mapped[int] = mapped_column(Integer, default=0)
     eta_date: Mapped[date] = mapped_column(Date)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
 
     agency: Mapped[Agency] = relationship(back_populates="bookings")
     aircraft: Mapped[Aircraft] = relationship(back_populates="bookings")
     part: Mapped[Part] = relationship(back_populates="bookings")
     work_order: Mapped[WorkOrder | None] = relationship(back_populates="bookings")
-    created_by_user: Mapped[User | None] = relationship()
 
 
 class StockMovement(Base):
@@ -188,13 +185,12 @@ class StockMovement(Base):
     work_order_id: Mapped[int | None] = mapped_column(
         ForeignKey("work_order.id", ondelete="SET NULL")
     )
-    user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    user_id: Mapped[int | None] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
 
     spare: Mapped[Spare] = relationship(back_populates="movements")
     work_order: Mapped[WorkOrder | None] = relationship(back_populates="movements")
-    user: Mapped[User | None] = relationship()
 
 
 from .fleet import AircraftPart  # noqa: E402

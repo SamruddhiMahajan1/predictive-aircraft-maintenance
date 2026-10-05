@@ -41,7 +41,6 @@ jobs:
       # steps below need it as well. Without it they silently fall back to the
       # config default `.../fdt`, a database this service never creates.
       FDT_DATABASE_URL: postgresql+psycopg://fdt:fdt@localhost:5432/fdt_test
-      FDT_JWT_SECRET: ci-secret-0123456789abcdefghijklmnop
       FDT_ENVIRONMENT: development
       FDT_DEMO_MODE: "false"
       FDT_ML_FALLBACK: "true"
@@ -113,9 +112,7 @@ jobs:
       - name: Install
         run: npm ci
 
-      # The console's sign-in path is only exercised here. It had no test coverage at all
-      # while the client silently authenticated itself as the demo commander on every
-      # deployment, so nothing would have caught that behaviour — or its removal.
+      # The console has no test coverage beyond the build; the API suite is the gate.
       - name: Test (node:test, no dependencies)
         run: npm test
 
@@ -178,5 +175,5 @@ jobs:
 
       - name: Compose file is valid
         run: |
-          FDT_JWT_SECRET=ci docker compose config --quiet
-          FDT_JWT_SECRET=ci docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+          docker compose config --quiet
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet

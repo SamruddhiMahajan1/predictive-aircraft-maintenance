@@ -1,35 +1,10 @@
-"""Write-path schemas — auth, work orders, spares, agencies, alerts, telemetry, ML."""
+"""Write-path schemas — work orders, spares, agencies, alerts, telemetry, ML."""
 from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
-
-
-# ── auth ───────────────────────────────────────────────────────────────────────
-class LoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-class UserOut(BaseModel):
-    id: int
-    username: str
-    full_name: str
-    role: str
-
-
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    user: UserOut
-
-
-class MeResponse(UserOut):
-    permissions: dict[str, bool]
-
 
 # ── work orders ────────────────────────────────────────────────────────────────
 PartCode = Literal["engine", "radar", "gear", "hyd", "fuel"]
@@ -62,7 +37,7 @@ class WorkOrderOut(BaseModel):
     status: str
     priority: str
     notes: str | None = None
-    created_by: UserOut | None = None
+    created_by: dict[str, Any] | None = None
     created_at: datetime
     updated_at: datetime
     started_at: datetime | None = None
@@ -169,7 +144,7 @@ class AlertOut(BaseModel):
     rul: int | None = None
     cycle: int | None = None
     acknowledged: bool
-    acknowledged_by: UserOut | None = None
+    acknowledged_by: dict[str, Any] | None = None
     acknowledged_at: datetime | None = None
     created_at: datetime
 
@@ -181,7 +156,7 @@ class AckRequest(BaseModel):
 class AckResponse(BaseModel):
     id: int
     acknowledged: bool
-    acknowledged_by: UserOut
+    acknowledged_by: dict[str, Any] | None = None
     acknowledged_at: datetime
     note: str | None = None
 

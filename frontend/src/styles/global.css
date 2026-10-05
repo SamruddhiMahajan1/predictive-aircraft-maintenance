@@ -107,30 +107,3 @@ body{background-color:var(--cream);background-image:linear-gradient(var(--g2) 1p
 .backend-badge .dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .backend-badge .dot.green{background:#10b981}
 .backend-badge .dot.amber{background:#f59e0b}
-.role-badge{font:600 11px var(--mono);text-transform:uppercase;padding:3px 8px;border-radius:4px;background:var(--wine);color:var(--cream);letter-spacing:0.04em}
-
-/* sign-in ------------------------------------------------------------------
-   `.wrap` is a 12-column grid, so the sign-in page overrides it to centre one card. */
-.login-wrap{display:flex;align-items:center;justify-content:center;min-height:100svh;grid-template-columns:none}
-.login-card{width:100%;max-width:420px;padding:30px;border:1px solid var(--line);border-radius:20px;background:linear-gradient(135deg,rgba(255,249,242,.9),rgba(243,230,213,.6));box-shadow:0 1px 0 rgba(255,255,255,.9) inset,0 16px 36px -18px rgba(128,0,32,.35)}
-.login-eyebrow{margin:0;font-size:11.5px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--wine)}
-.login-title{margin:6px 0 0;font:700 26px/1.15 var(--sans);letter-spacing:-.02em}
-.login-sub{margin:8px 0 20px;color:var(--mut);font-size:13px}
-.login-form{display:grid;gap:13px}
-.login-field{display:grid;gap:5px}
-.login-field span{font-size:12px;font-weight:600;color:var(--mut)}
-.login-field input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:rgba(255,255,255,.8);color:var(--ink);font:14px var(--sans)}
-.login-field input:focus-visible{outline:2px solid var(--wine);outline-offset:1px;border-color:transparent}
-.login-error{margin:0;padding:8px 11px;border-radius:10px;background:rgba(128,0,32,.09);color:var(--wine);font-size:12.5px;font-weight:600}
-.login-submit,.login-demo{width:100%;padding:11px;border-radius:12px;font-weight:700;cursor:pointer;transition:filter .15s ease}
-.login-submit{border:none;background:var(--wine);color:var(--cream)}
-.login-demo{border:1px solid var(--line);background:rgba(255,255,255,.7);color:var(--wine)}
-.login-submit:hover:not(:disabled),.login-demo:hover:not(:disabled){filter:brightness(1.08)}
-.login-submit:disabled,.login-demo:disabled{opacity:.6;cursor:progress}
-.login-submit:focus-visible,.login-demo:focus-visible{outline:2px solid var(--wine);outline-offset:2px}
-.login-divider{margin:16px 0 10px;text-align:center;font-size:11.5px;color:var(--mut);text-transform:uppercase;letter-spacing:.1em}
-.login-note{margin:12px 0 0;font-size:11.5px;line-height:1.5;color:var(--mut)}
-.login-note code{font:11px var(--mono)}
-.signout{border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:rgba(255,255,255,.6);color:var(--mut);font:600 11.5px var(--sans);cursor:pointer;transition:color .15s ease,border-color .15s ease}
-.signout:hover{color:var(--wine);border-color:var(--wine)}
-.signout:focus-visible{outline:2px solid var(--wine);outline-offset:2px}

@@ -77,8 +77,7 @@ def _write_cycle(db, cycle: int, recorded_at: datetime) -> None:
                 "sensors": {name: 10.0 + i for i, name in enumerate(SENSOR_COLUMNS)},
             }
         ],
-        recorded_at=recorded_at,
-    )
+        recorded_at=recorded_at)
     db.commit()
 
 
@@ -95,8 +94,7 @@ def seeded_ticks(db, database):
         (900, NOW - timedelta(hours=10)),
         (901, NOW - timedelta(hours=8)),
         (902, NOW - timedelta(hours=2)),
-        (903, NOW - timedelta(minutes=5)),
-    ):
+        (903, NOW - timedelta(minutes=5))):
         _write_cycle(db, cycle, at)
     return db
 
@@ -108,8 +106,7 @@ def seeded_ticks(db, database):
         (ComponentHealth, "recorded_at"),
         (HealthSnapshot, "recorded_at"),
         (MlPrediction, "created_at"),
-    ],
-)
+    ])
 def test_prune_removes_old_and_keeps_recent(seeded_ticks, model, column):
     """The whole point: a timestamp boundary, applied to all four growing tables."""
     before = _count(seeded_ticks, model)

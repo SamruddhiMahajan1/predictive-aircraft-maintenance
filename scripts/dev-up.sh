@@ -27,10 +27,7 @@ step() { printf '\n\033[1m[dev-up] %s\033[0m\n' "$*"; }
 step "1/5 environment"
 if [[ ! -f .env ]]; then
   cp .env.example .env
-  secret="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-  # BSD and GNU sed disagree on -i, so write through a temp file instead.
-  sed "s|^FDT_JWT_SECRET=.*|FDT_JWT_SECRET=${secret}|" .env >.env.tmp && mv .env.tmp .env
-  echo "created .env with a generated FDT_JWT_SECRET"
+  echo "created .env"
 else
   echo ".env already exists, leaving it alone"
 fi
@@ -72,4 +69,3 @@ step "6/6 migrate and seed"
 "${COMPOSE[@]}" run --rm --entrypoint sh api -c 'alembic upgrade head && python -m app.seed.run'
 
 printf '\n\033[1m[dev-up] done\033[0m  run `make up` and open http://localhost:8080\n'
-echo "[dev-up] demo logins: commander / officer / viewer (passwords in backend/app/seed/run.py)"

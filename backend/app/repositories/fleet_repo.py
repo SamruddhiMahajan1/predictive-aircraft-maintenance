@@ -9,7 +9,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..models.alert import Alert
-from ..models.auth import User
 from ..models.fleet import Aircraft, AircraftPart, Part
 from ..models.maintenance import (
     Agency,
@@ -20,26 +19,6 @@ from ..models.maintenance import (
 )
 from ..models.reference import FlightOpsMonthly, TechnicalRecord
 from ..models.telemetry import ComponentHealth, HealthSnapshot, MlPrediction
-
-
-# ── users ──────────────────────────────────────────────────────────────────────
-def get_user_by_username(db: Session, username: str) -> User | None:
-    return db.scalar(select(User).where(User.username == username))
-
-
-def get_user(db: Session, user_id: int) -> User | None:
-    return db.get(User, user_id)
-
-
-def count_users(db: Session) -> int:
-    """How many accounts exist.
-
-    Separate from `count_aircraft` on purpose: a database can hold a full fleet and zero
-    users, and that combination makes every login fail with an indistinguishable 401. The
-    boot seed uses this to tell "already seeded, skip the expensive work" apart from
-    "needs accounts".
-    """
-    return db.scalar(select(func.count(User.id))) or 0
 
 
 # ── fleet ──────────────────────────────────────────────────────────────────────
