@@ -116,9 +116,23 @@ def database() -> Iterator[None]:
 
 @pytest.fixture(scope="session")
 def client(database) -> Iterator[TestClient]:
-    """A TestClient that has run the application lifespan."""
+    """A TestClient that has run the application lifespan.
+
+    Lifespan yields before the background init (model load, C-MAPSS parse, seed)
+    finishes, so wait for readiness: artifact-dependent tests would otherwise race
+    the loader and intermittently see the deterministic fallback.
+    """
     app = create_app()
     with TestClient(app) as c:
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            try:
+                status = c.get("/healthz").json().get("status")
+            except Exception:  # noqa: BLE001 — not up yet
+                status = None
+            if status in ("ok", "degraded"):
+                break
+            time.sleep(0.2)
         yield c
 
 

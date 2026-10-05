@@ -78,6 +78,19 @@ def web_client(dist, database, monkeypatch):
         "app.main.get_settings", lambda: Settings(web_dist=dist, demo_mode=False)
     )
     with TestClient(create_app()) as client:
+        # Lifespan yields before the background init finishes; /healthz reports
+        # `starting` until then. Wait for the real verdict like production does.
+        import time
+
+        deadline = time.time() + 180
+        while time.time() < deadline:
+            try:
+                status = client.get("/healthz").json().get("status")
+            except Exception:  # noqa: BLE001 — not up yet
+                status = None
+            if status in ("ok", "degraded"):
+                break
+            time.sleep(0.2)
         yield client
 
 

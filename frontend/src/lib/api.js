@@ -14,22 +14,58 @@ let reconnectAttempt = 0;
 let liveFilter = null;
 let stopped = false;
 
-async function request(path, { method = 'GET', body } = {}) {
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+// Every read used to hang until the browser/proxy gave up (30s+) on a cold
+// free-tier boot, and the 5-endpoint burst in server.js then failed as one —
+// "loads forever, then nothing". A 12 s abort bounds each attempt so a stalled
+// poll clears instead of wedging the poll guard, and one retry absorbs the
+// single 502 Render returns while the service is still waking.
+async function request(path, { method = 'GET', body, timeoutMs = 12000 } = {}) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      method,
+      signal: ctrl.signal,
+      headers: {
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
 
-  const payload = res.status === 204 ? null : await res.json().catch(() => null);
-  return { ok: res.ok, status: res.status, body: payload };
+    const payload = res.status === 204 ? null : await res.json().catch(() => null);
+    return { ok: res.ok, status: res.status, body: payload };
+  } catch (err) {
+    // Timeouts surface as ok:false rather than throwing, so callers that check
+    // `ok` degrade to stale data while callers that rely on try/catch keep working.
+    if (err?.name === 'AbortError') return { ok: false, status: 0, body: null, timeout: true };
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// GET with one retry on cold-boot signals only (timeout / 502 / 503 / 504 /
+// 429). 4xx is not retried: a 422 is the server's answer, not a wake-up transient.
+async function getWithRetry(path, { retries = 1, timeoutMs = 12000 } = {}) {
+  let last = { ok: false, status: 0, body: null };
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      last = await request(path, { timeoutMs });
+    } catch (err) {
+      console.warn(`[API] ${path} attempt ${attempt + 1} failed:`, err);
+      last = { ok: false, status: 0, body: null };
+    }
+    if (last.ok) return last;
+    const retryable = last.status === 0 || last.status === 429 || last.status >= 502;
+    if (!retryable || attempt === retries) break;
+    await new Promise((r) => setTimeout(r, 800 * (attempt + 1)));
+  }
+  return last;
 }
 
 export async function fetchAircraftList() {
   try {
-    const { ok, body } = await request('/aircraft');
+    const { ok, body } = await getWithRetry('/aircraft');
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchAircraftList failed:', err);
@@ -39,7 +75,7 @@ export async function fetchAircraftList() {
 
 export async function fetchAircraftDetail(codeOrId) {
   try {
-    const { ok, body } = await request(`/aircraft/${encodeURIComponent(codeOrId)}`);
+    const { ok, body } = await getWithRetry(`/aircraft/${encodeURIComponent(codeOrId)}`);
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchAircraftDetail failed:', err);
@@ -49,7 +85,7 @@ export async function fetchAircraftDetail(codeOrId) {
 
 export async function fetchFleetSummary() {
   try {
-    const { ok, body } = await request('/fleet/summary');
+    const { ok, body } = await getWithRetry('/fleet/summary');
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchFleetSummary failed:', err);
@@ -66,7 +102,7 @@ export async function fetchFleetSummary() {
  */
 export async function fetchHeatmap() {
   try {
-    const { ok, body } = await request('/fleet/heatmap');
+    const { ok, body } = await getWithRetry('/fleet/heatmap');
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchHeatmap failed:', err);
@@ -77,7 +113,7 @@ export async function fetchHeatmap() {
 /** Worst parts across the fleet, with the action, spare, agency and turnaround. */
 export async function fetchFleetActions(limit = 5) {
   try {
-    const { ok, body } = await request(`/fleet/actions?limit=${limit}`);
+    const { ok, body } = await getWithRetry(`/fleet/actions?limit=${limit}`);
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchFleetActions failed:', err);
@@ -88,7 +124,7 @@ export async function fetchFleetActions(limit = 5) {
 /** One row per aircraft: worst part, action, due dates, spare status, agency, work order. */
 export async function fetchSchedule() {
   try {
-    const { ok, body } = await request('/maintenance/schedule');
+    const { ok, body } = await getWithRetry('/maintenance/schedule');
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchSchedule failed:', err);
@@ -102,7 +138,7 @@ export async function fetchSchedule() {
  */
 export async function fetchEngineDetail(codeOrId, window = 60) {
   try {
-    const { ok, body } = await request(
+    const { ok, body } = await getWithRetry(
       `/aircraft/${encodeURIComponent(codeOrId)}/engine?window=${window}`,
     );
     return ok ? body : null;
@@ -115,7 +151,7 @@ export async function fetchEngineDetail(codeOrId, window = 60) {
 /** Part detail: health, action, technical records, spare, agency, back-in-service breakdown. */
 export async function fetchPartDetail(codeOrId, part) {
   try {
-    const { ok, body } = await request(
+    const { ok, body } = await getWithRetry(
       `/aircraft/${encodeURIComponent(codeOrId)}/parts/${encodeURIComponent(part)}`,
     );
     return ok ? body : null;
@@ -127,7 +163,7 @@ export async function fetchPartDetail(codeOrId, part) {
 
 export async function fetchAlerts() {
   try {
-    const { ok, body } = await request('/alerts?limit=50');
+    const { ok, body } = await getWithRetry('/alerts?limit=50');
     return ok ? body : null;
   } catch (err) {
     console.warn('[API] fetchAlerts failed:', err);

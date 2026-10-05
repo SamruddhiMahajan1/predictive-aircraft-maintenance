@@ -154,6 +154,12 @@ function pushHistory(e, cycle, health) {
  * Read every fleet-wide endpoint and fold it into the fleet entries.
  * Concurrent callers (interval poll + WS work-order events + reconnect) share
  * one in-flight burst instead of stacking duplicate 5-endpoint storms.
+ *
+ * Two phases: the critical pair (list + summary) paints the KPIs and fleet bars
+ * first, then heatmap/actions/schedule follow. On a cold free-tier boot the full
+ * 5-way burst used to fail as one — all slow, all timing out together — leaving
+ * a console that loaded forever and then showed nothing. Phasing means a slow
+ * backend still paints something, and each phase tolerates partial failure.
  * @returns {Promise<boolean>} whether the API answered at all
  */
 let fleetInFlight = null;
@@ -163,27 +169,38 @@ export function refreshFleet() {
   // Stamped before the requests go out, not when they come back — the comparison in
   // applyAircraftList is against socket frames that arrived while this was in flight.
   const issuedAt = Date.now();
-  const [list, heat, summary, actions, schedule] = await Promise.all([
+  const [list, summary] = await Promise.all([
     fetchAircraftList(),
-    fetchHeatmap(),
     fetchFleetSummary(),
+  ]);
+
+  const critical = !!(list || summary);
+  if (critical) {
+    applyAircraftList(list, issuedAt);
+    if (summary) {
+      derived.summary = summary;
+      if (summary.lowest_rul_aircraft) {
+        const lo = resolve(summary.lowest_rul_aircraft.code);
+        if (lo && summary.lowest_rul_aircraft.rul != null) lo.rul = summary.lowest_rul_aircraft.rul;
+      }
+    }
+    // Paint what we have now; the secondary phase below fills the rest. Without
+    // this the panels wait behind the slowest of five endpoints on every poll.
+    derived.fetchedAt = Date.now();
+    emit();
+  }
+
+  const [heat, actions, schedule] = await Promise.all([
+    fetchHeatmap(),
     fetchFleetActions(5),
     fetchSchedule(),
   ]);
 
-  if (!list && !heat && !summary) return false;   // nothing came back; keep what we have
+  if (!critical && !heat && !actions && !schedule) return false;   // nothing came back; keep what we have
 
-  applyAircraftList(list, issuedAt);
-  applyHeatmap(heat);
-  if (summary) {
-    derived.summary = summary;
-    if (summary.lowest_rul_aircraft) {
-      const lo = resolve(summary.lowest_rul_aircraft.code);
-      if (lo && summary.lowest_rul_aircraft.rul != null) lo.rul = summary.lowest_rul_aircraft.rul;
-    }
-  }
-  derived.actions = actions?.items || [];
-  derived.schedule = schedule?.items || [];
+  if (heat) applyHeatmap(heat);
+  if (actions) derived.actions = actions?.items || [];
+  if (schedule) derived.schedule = schedule?.items || [];
   derived.fetchedAt = Date.now();
   return true;
   })().finally(() => { fleetInFlight = null; });
