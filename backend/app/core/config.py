@@ -5,12 +5,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, ClassVar
 
-from pydantic import Field, field_validator, model_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
-
-# Committed placeholder. `docker compose` makes the real value mandatory and
-# `_reject_insecure_production` refuses to start with it in production.
-DEV_JWT_SECRET = "dev-only-insecure-secret"
 
 
 class Settings(BaseSettings):
@@ -28,13 +24,6 @@ class Settings(BaseSettings):
     db_echo: bool = False
     db_pool_size: int = 5
     db_max_overflow: int = 10
-
-    # auth
-    # The default is a development placeholder and the app refuses to boot on it
-    # outside development — see `_validate` below. Never ship a real secret here.
-    jwt_secret: str = DEV_JWT_SECRET
-    jwt_algorithm: str = "HS256"
-    jwt_ttl_minutes: int = 720
 
     # http
     # NoDecode: a comma-separated env string must not be JSON-parsed first
@@ -135,28 +124,6 @@ class Settings(BaseSettings):
             if v.startswith(bare):
                 return f"postgresql+psycopg://{v[len(bare):]}"
         return v
-
-    @model_validator(mode="after")
-    def _reject_insecure_production(self) -> Settings:
-        """Refuse to serve real traffic signed with the committed dev secret.
-
-        A default that silently works in production is how a demo repo turns into a
-        token-forging incident. `docker compose` already makes FDT_JWT_SECRET mandatory;
-        this closes the same hole for a bare `uvicorn`/`make run`.
-
-        Note what is deliberately *not* checked: `demo_mode`. It selects a telemetry source
-        and is not a security property. It was previously rejected in production, which
-        combined with the replay gating on `demo_mode` to make every combination broken —
-        production was a dead twin, and the only working configuration was `staging`. See
-        docker-compose.prod.yml and docs/11 §13.4.
-        """
-        if self.environment == "production" and self.jwt_secret == DEV_JWT_SECRET:
-            raise ValueError(
-                "FDT_JWT_SECRET still holds the development placeholder while "
-                "FDT_ENVIRONMENT=production. Generate one with "
-                "`openssl rand -hex 32`."
-            )
-        return self
 
     @property
     def raw_dir(self) -> Path:

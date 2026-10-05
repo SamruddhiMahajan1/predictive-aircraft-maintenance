@@ -201,10 +201,7 @@ def _percentile(values: list[float], pct: float) -> float | None:
 
 def seed_work_orders(db: Session) -> int:
     """maintenance_schedule.csv with its status vocabulary mapped (docs/01 §7)."""
-    from ..models.auth import User
     from ..seed.loaders.base import read_csv
-
-    seeder = db.scalar(select(User).where(User.username == "commander"))
     rows = read_csv("maintenance_schedule.csv")
     refs = {a.aircraft_id: a for a in db.scalars(select(AircraftRef))}
     components = {c.component_id: c for c in db.scalars(select(ComponentRef))}
@@ -243,7 +240,7 @@ def seed_work_orders(db: Session) -> int:
             status="open",
             priority=priority if priority in ("low", "medium", "high") else "medium",
             source_ref=row.get("schedule_id"),
-            created_by=seeder.id if seeder else None,
+            created_by=None,
         ))
         db.flush()   # autoflush is off, so the uniqueness check needs this
         count += 1

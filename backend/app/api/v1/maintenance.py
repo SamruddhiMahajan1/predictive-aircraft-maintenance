@@ -23,7 +23,7 @@ from ...schemas.ops import (
     WorkOrderUpdate,
 )
 from ...services import maintenance_service as svc
-from ..deps import CanMutate, CurrentUser, DbSession
+from ..deps import DbSession
 
 router = APIRouter(tags=["maintenance"], prefix="/api/v1")
 
@@ -32,7 +32,6 @@ router = APIRouter(tags=["maintenance"], prefix="/api/v1")
 @router.get("/work-orders", response_model=WorkOrderList)
 def list_work_orders(
     db: DbSession,
-    user: CurrentUser,
     status_filter: Annotated[str | None, Query(alias="status")] = None,
     aircraft: str | None = None,
     part: str | None = None,
@@ -47,50 +46,49 @@ def list_work_orders(
 
 
 @router.post("/work-orders", response_model=WorkOrderOut, status_code=status.HTTP_201_CREATED)
-def create_work_order(db: DbSession, user: CanMutate, payload: WorkOrderCreate):
-    return svc.publish_events(svc.create_work_order(db, payload.model_dump(), user))
+def create_work_order(db: DbSession, payload: WorkOrderCreate):
+    return svc.publish_events(svc.create_work_order(db, payload.model_dump()))
 
 
 @router.patch("/work-orders/{work_order_id}", response_model=WorkOrderOut)
-def update_work_order(db: DbSession, user: CanMutate, work_order_id: int, payload: WorkOrderUpdate):
+def update_work_order(db: DbSession, work_order_id: int, payload: WorkOrderUpdate):
     return svc.publish_events(
-        svc.update_work_order(db, work_order_id, payload.model_dump(exclude_none=True), user)
+        svc.update_work_order(db, work_order_id, payload.model_dump(exclude_none=True))
     )
 
 
 # ── spares ─────────────────────────────────────────────────────────────────────
 @router.get("/spares", response_model=SpareList)
-def list_spares(db: DbSession, user: CurrentUser):
+def list_spares(db: DbSession):
     return svc.list_spares(db)
 
 
 @router.patch("/spares/{part_ref_id}", response_model=SpareOut)
-def update_spare(db: DbSession, user: CanMutate, part_ref_id: str, payload: SpareUpdate):
-    return svc.publish_events(svc.update_spare(db, part_ref_id, payload.model_dump(), user))
+def update_spare(db: DbSession, part_ref_id: str, payload: SpareUpdate):
+    return svc.publish_events(svc.update_spare(db, part_ref_id, payload.model_dump()))
 
 
 @router.post("/spares/{part_ref_id}/reserve", response_model=ReserveResponse)
-def reserve_spare(db: DbSession, user: CanMutate, part_ref_id: str, payload: ReserveRequest):
-    return svc.publish_events(svc.reserve_spare(db, part_ref_id, payload.work_order_id, user))
+def reserve_spare(db: DbSession, part_ref_id: str, payload: ReserveRequest):
+    return svc.publish_events(svc.reserve_spare(db, part_ref_id, payload.work_order_id))
 
 
 # ── agencies ───────────────────────────────────────────────────────────────────
 @router.get("/agencies", response_model=AgencyList)
-def list_agencies(db: DbSession, user: CurrentUser):
+def list_agencies(db: DbSession):
     return svc.list_agencies(db)
 
 
 @router.post("/agencies/{agency_id}/bookings", response_model=BookingResponse,
              status_code=status.HTTP_201_CREATED)
-def create_booking(db: DbSession, user: CanMutate, agency_id: int, payload: BookingRequest):
-    return svc.publish_events(svc.create_booking(db, agency_id, payload.model_dump(), user))
+def create_booking(db: DbSession, agency_id: int, payload: BookingRequest):
+    return svc.publish_events(svc.create_booking(db, agency_id, payload.model_dump()))
 
 
 # ── alerts ─────────────────────────────────────────────────────────────────────
 @router.get("/alerts", response_model=dict)
 def list_alerts(
     db: DbSession,
-    user: CurrentUser,
     acknowledged: bool | None = None,
     level: str | None = None,
     aircraft: str | None = None,
@@ -100,5 +98,5 @@ def list_alerts(
 
 
 @router.post("/alerts/{alert_id}/ack", response_model=AckResponse)
-def ack_alert(db: DbSession, user: CanMutate, alert_id: int, payload: AckRequest = Body(default=AckRequest())):
-    return svc.publish_events(svc.ack_alert(db, alert_id, payload.note, user))
+def ack_alert(db: DbSession, alert_id: int, payload: AckRequest = Body(default=AckRequest())):
+    return svc.publish_events(svc.ack_alert(db, alert_id, payload.note))

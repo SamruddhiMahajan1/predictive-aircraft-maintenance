@@ -33,17 +33,10 @@ WEB_MOUNT_PREFIXES = ("assets", "models")
 
 
 async def _seed_if_empty(settings: Settings) -> None:
-    """Reconcile accounts, and seed the fleet on first boot.
+    """Seed the fleet on first boot.
 
     For deployments nobody can shell into — a Render free service cannot run
     `python -m app.seed.run`, so it depends on this.
-
-    The aircraft COUNT is only a fast path for the expensive part. It must never gate the
-    accounts: `seed.run.run()` is idempotent and now seeds users unconditionally, but a
-    deployment whose database holds aircraft and no users would be permanently
-    unloginable otherwise, failing every login with a 401 that reads as bad credentials.
-    An empty `users` table is one cheap COUNT, and paying it on each cold start is
-    nothing next to re-parsing C-MAPSS.
     """
     if not settings.seed_on_boot:
         return
@@ -52,20 +45,16 @@ async def _seed_if_empty(settings: Settings) -> None:
 
     with get_sessionmaker(settings)() as db:
         needs_fleet = not repo.count_aircraft(db)
-        needs_users = not repo.count_users(db)
 
-    if not needs_fleet and not needs_users:
-        log.info("fleet and accounts already seeded — skipping boot seed")
+    if not needs_fleet:
+        log.info("fleet already seeded — skipping boot seed")
         return
 
     # Imported here, not at module scope: app.seed imports the repositories and the ORM,
     # and ops.py:71 does the same for the HTTP path.
-    if needs_fleet:
-        log.info("fleet is empty and FDT_SEED_ON_BOOT is set — seeding")
-    else:
-        log.info("no accounts in the database and FDT_SEED_ON_BOOT is set — seeding accounts")
+    log.info("fleet is empty and FDT_SEED_ON_BOOT is set — seeding")
 
-    # Blocking work (CSVs, bcrypt, inserts) — keep it off the event loop so the
+    # Blocking work (CSVs, inserts) — keep it off the event loop so the
     # readiness probe and /healthz stay responsive while it runs.
     await asyncio.to_thread(run)
     log.info("boot seed complete")
@@ -120,10 +109,10 @@ def _mount_frontend(app: FastAPI, settings: Settings) -> None:
     Why three narrow paths and not a `StaticFiles` mount at "/"
     ---------------------------------------------------------
     A mount at "/" matches every path, and Starlette takes the first *complete* match.
-    An API request whose path matches but whose method does not — a GET to the
-    POST-only `/api/v1/auth/login` — only partially matches the router, so routing
-    continues into the mount, which matches as a GET, finds no such file, and answers
-    404. The request silently stops being a method error and becomes a missing asset.
+    An API request whose path matches but whose method does not only partially matches
+    the router, so routing continues into the mount, which matches as a GET, finds no
+    such file, and answers 404. The request silently stops being a method error and
+    becomes a missing asset.
 
     So the build is claimed exactly where it lives: `/` for the shell, plus the two
     directories Vite emits. Every other path belongs to the API by construction rather
@@ -180,7 +169,7 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origins,   # explicit allowlist, never "*"
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
-        allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
+        allow_headers=["Content-Type", "X-Request-ID"],
         expose_headers=["X-Request-ID"],
     )
 

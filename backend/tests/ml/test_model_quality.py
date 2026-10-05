@@ -15,7 +15,6 @@ from app.core.config import Settings
 from app.ml import model_store
 from app.ml.features import FEATURE_ORDER, SENSORS, contract_sensors
 from app.models.alert import Alert
-from app.models.auth import User
 from app.models.fleet import Aircraft, AircraftPart, Part
 from app.models.maintenance import Agency, Spare, WorkOrder
 from app.models.reference import AircraftRef, ComponentRef, FlightOpsMonthly
@@ -27,8 +26,7 @@ from app.models.reference import AircraftRef, ComponentRef, FlightOpsMonthly
 _STAGED = next(
     (v for v in sorted(Settings(_env_file=None)._ML_FILES)
      if pathlib.Path(Settings(_env_file=None, ml_variant=v).ml_model_path_resolved).exists()),
-    None,
-)
+    None)
 _SETTINGS = Settings(_env_file=None, ml_variant=_STAGED) if _STAGED else Settings(
     _env_file=None
 )
@@ -43,8 +41,7 @@ STATS = pathlib.Path(
 has_artifact = pytest.mark.skipif(
     not ARTIFACT.exists(),
     reason="no ML variant staged: copy models/multi/*_full.json from Drive "
-           "(see docs/08 §4 and docs/12 §8)",
-)
+           "(see docs/08 §4 and docs/12 §8)")
 # derived the same way model_store derives it: xgboost_X.json -> metrics_X.json
 METRICS = pathlib.Path(
     ARTIFACT.name.replace("xgboost_", "metrics_") if ARTIFACT.exists() else "metrics_missing"
@@ -157,34 +154,34 @@ def test_baseline_stats_cover_every_sensor():
 
 
 @has_artifact
-def test_deviation_scores_are_produced_for_every_sensor(client, auth):
+def test_deviation_scores_are_produced_for_every_sensor(client):
     from tests.integration.test_telemetry_ml import _predict_window
 
-    body = client.post("/api/v1/internal/ml/predict", headers=auth("officer"),
+    body = client.post("/api/v1/internal/ml/predict",
                        json={"window": _predict_window(), "persist": False}).json()
     assert set(body["deviation"]) == set(SENSORS)
     assert body["model"]["fallback"] is False
 
 
 @has_artifact
-def test_rul_never_leaves_the_cap(client, auth):
+def test_rul_never_leaves_the_cap(client):
     from tests.integration.test_telemetry_ml import _predict_window
 
     for start in (1, 50, 100):
         window = _predict_window()
         for row in window:
             row["cycle"] += start
-        body = client.post("/api/v1/internal/ml/predict", headers=auth("officer"),
+        body = client.post("/api/v1/internal/ml/predict",
                            json={"window": window, "persist": False}).json()
         assert 0 <= body["rul"] <= 125
 
 
 @has_artifact
-def test_predictions_are_deterministic(client, auth):
+def test_predictions_are_deterministic(client):
     from tests.integration.test_telemetry_ml import _predict_window
 
     results = [
-        client.post("/api/v1/internal/ml/predict", headers=auth("officer"),
+        client.post("/api/v1/internal/ml/predict",
                     json={"window": _predict_window(), "persist": False}).json()
         for _ in range(10)
     ]
@@ -256,19 +253,6 @@ def test_rul_is_within_the_cap_everywhere(db):
         select(func.min(Aircraft.rul), func.max(Aircraft.rul))
     ).one()
     assert 0 <= lo <= hi <= 125
-
-
-def test_three_demo_users_exist_with_the_right_roles(db):
-    roles = {u.username: u.role.value for u in db.scalars(select(User))}
-    assert roles == {"commander": "commander",
-                     "officer": "maintenance_officer",
-                     "viewer": "viewer"}
-
-
-def test_passwords_are_bcrypt_hashed(db):
-    for user in db.scalars(select(User)):
-        assert user.password_hash.startswith("$2b$")
-        assert "commander123" not in user.password_hash
 
 
 def test_alerts_only_exist_for_non_healthy_parts(db):

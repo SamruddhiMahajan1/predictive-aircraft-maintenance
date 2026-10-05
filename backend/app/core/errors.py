@@ -29,16 +29,6 @@ class BusinessRuleError(DomainError):
     code = "BUSINESS_RULE_VIOLATION"
 
 
-class ForbiddenError(DomainError):
-    status_code = 403
-    code = "FORBIDDEN"
-
-
-class AuthenticationError(DomainError):
-    status_code = 401
-    code = "UNAUTHORIZED"
-
-
 class ModelUnavailableError(DomainError):
     status_code = 503
     code = "MODEL_UNAVAILABLE"

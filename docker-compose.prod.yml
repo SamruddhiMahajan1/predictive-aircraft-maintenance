@@ -8,8 +8,7 @@
 # build context specified". Always pass both files, as above.
 #
 # What changes relative to development:
-#   • FDT_ENVIRONMENT=production, which makes the API refuse to boot on the committed
-#     development JWT secret.
+#   • FDT_ENVIRONMENT=production.
 #   • no published ports on `api` or `db` — only `web` is reachable, so the monolith and
 #     the database exist solely on the internal network behind the nginx BFF.
 #   • explicit resource limits, log rotation and a hardened nginx.
@@ -70,9 +69,8 @@ services:
       FDT_DEMO_MODE: ${FDT_DEMO_MODE:-true}
 
       # Nobody can shell into this container to run `python -m app.seed.run`. Without this
-      # a fresh volume has no rows at all and every login returns 401 — the same failure as
-      # an empty `users` table. It is idempotent and now reconciles accounts separately
-      # from the fleet, so leaving it on costs one COUNT per restart.
+      # a fresh volume has no rows at all. It is idempotent, so leaving it on costs one
+      # COUNT per restart.
       FDT_SEED_ON_BOOT: ${FDT_SEED_ON_BOOT:-true}
 
       # Same-origin only: in production the browser never talks to the API cross-origin,

@@ -1,53 +1,14 @@
-"""Configuration guards — the settings that refuse to serve real traffic badly.
-
-These are the checks between "someone deployed this" and "someone's fleet telemetry is
-signed with a secret published in the repository".
-"""
+"""Configuration guards — settings that must behave sanely in every environment."""
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
 
-from app.core.config import DEV_JWT_SECRET, Settings
-
-REAL_SECRET = "a-real-generated-secret-value-0123456789abcdef"
-
-
-def test_production_refuses_the_committed_development_secret():
-    """The whole point of the guard.
-
-    `jwt_secret` defaults to a value in the source, so a deployment that forgets to set it
-    would otherwise mint tokens anyone could forge from this repository.
-    """
-    with pytest.raises(ValidationError) as exc:
-        Settings(environment="production", jwt_secret=DEV_JWT_SECRET)
-
-    message = str(exc.value)
-    assert "FDT_JWT_SECRET" in message
-    assert "openssl rand -hex 32" in message, "the error must say how to fix it"
-
-
-def test_production_accepts_a_generated_secret():
-    settings = Settings(environment="production", jwt_secret=REAL_SECRET)
-    assert settings.environment == "production"
-    assert settings.jwt_secret == REAL_SECRET
-
-
-def test_development_tolerates_the_placeholder():
-    """Otherwise the guard would be unusable locally."""
-    settings = Settings(environment="development", jwt_secret=DEV_JWT_SECRET)
-    assert settings.environment == "development"
+from app.core.config import Settings
 
 
 def test_production_allows_demo_mode():
-    """`demo_mode` picks a telemetry source; it is not a security control.
-
-    It used to be rejected under `production`. Since the replay engine only runs when
-    `demo_mode` is true, that made every combination unusable: production produced a static
-    console with no telemetry, and the only working setting was misreporting itself as
-    `staging`. docker-compose.prod.yml and render.yaml now both use `production`.
-    """
-    settings = Settings(environment="production", jwt_secret=REAL_SECRET, demo_mode=True)
+    """`demo_mode` picks a telemetry source; it is not a security control."""
+    settings = Settings(environment="production", demo_mode=True)
     assert settings.demo_mode is True
     assert settings.environment == "production"
 
@@ -55,8 +16,7 @@ def test_production_allows_demo_mode():
 def test_cors_origins_accepts_a_comma_separated_string():
     """Operators set this as one env var; it must not arrive as one long string."""
     settings = Settings(
-        cors_origins="https://a.example, https://b.example ,",
-    )
+        cors_origins="https://a.example, https://b.example ,")
     assert settings.cors_origins == ["https://a.example", "https://b.example"]
 
 
@@ -72,8 +32,7 @@ def test_cors_origins_accepts_a_comma_separated_string():
         "postgres://u:p@host/db",
         "postgresql://u:p@host/db",
         "postgres://u:p@host:5432/db?sslmode=require",
-    ],
-)
+    ])
 def test_a_bare_provider_url_gets_the_pinned_driver(given):
     assert Settings(database_url=given).database_url.startswith("postgresql+psycopg://")
 

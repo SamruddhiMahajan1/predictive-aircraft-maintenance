@@ -12,35 +12,13 @@ from pathlib import Path
 from sqlalchemy import select
 
 from ..core.config import get_settings
-from ..core.security import hash_password
 from ..db.session import get_sessionmaker
-from ..models.auth import User, UserRole
 from ..models.fleet import Aircraft
 from . import derived
 from .cmapss import cmapss
 from .loaders import drive
 
 log = logging.getLogger(__name__)
-
-DEMO_USERS = [
-    ("commander", "commander123", "Cmdr. A. Rao", UserRole.commander),
-    ("officer", "officer123", "M. Iyer", UserRole.maintenance_officer),
-    ("viewer", "viewer123", "S. Nair", UserRole.viewer),
-]
-
-
-def seed_users(db) -> int:
-    settings = get_settings()
-    count = 0
-    for username, password, full_name, role in DEMO_USERS:
-        user = db.scalar(select(User).where(User.username == username))
-        if user is None:
-            db.add(User(username=username,
-                        password_hash=hash_password(password, settings),
-                        full_name=full_name, role=role))
-            count += 1
-    db.flush()
-    return count
 
 
 def run() -> dict[str, int]:
@@ -50,21 +28,9 @@ def run() -> dict[str, int]:
 
     session = get_sessionmaker(settings)
     with session() as db:
-        # Users are seeded unconditionally, before the aircraft gate below.
-        #
-        # This used to sit *after* an `if any aircraft exist: return` short-circuit, so a
-        # database holding aircraft but no users — a seed that failed partway, or a restore
-        # of an aircraft-only backup — was permanently unloginable, with `make seed`
-        # reporting "nothing to do" and no error anywhere. Every login then failed with a
-        # 401 that looked like bad credentials. Accounts are cheap, idempotent and
-        # required to authenticate at all, so they are never skipped.
-        counts["users"] = seed_users(db)
-        db.commit()
-
         existing = db.scalar(select(Aircraft.id).limit(1))
         if existing is not None:
-            log.info("fleet already seeded — reconciled %d missing account(s), "
-                     "nothing else to do", counts["users"])
+            log.info("fleet already seeded — nothing else to do")
             return {"status": 0}
 
         counts["aircraft_ref"] = drive.load_aircraft(db)

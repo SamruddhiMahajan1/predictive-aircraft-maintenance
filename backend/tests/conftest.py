@@ -32,7 +32,6 @@ if not _TEST_DB:
         "The suite drops and recreates the public schema on every session."
     )
 os.environ["FDT_DATABASE_URL"] = _TEST_DB
-os.environ.setdefault("FDT_JWT_SECRET", "test-secret-0123456789abcdefghijklmnop")
 os.environ.setdefault("FDT_ENVIRONMENT", "development")
 os.environ.setdefault("FDT_DEMO_MODE", "false")
 os.environ.setdefault("FDT_ML_FALLBACK", "true")
@@ -71,9 +70,6 @@ from sqlalchemy import text  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
 from app.db.session import get_sessionmaker  # noqa: E402
 from app.main import create_app  # noqa: E402
-
-DEMO_PASSWORD = {"commander": "commander123", "officer": "officer123",
-                 "viewer": "viewer123"}
 
 
 def _alembic(*args: str) -> None:
@@ -126,27 +122,6 @@ def client(database) -> Iterator[TestClient]:
         yield c
 
 
-@pytest.fixture(scope="session")
-def tokens(client) -> dict[str, str]:
-    out: dict[str, str] = {}
-    for role, password in DEMO_PASSWORD.items():
-        response = client.post(
-            "/api/v1/auth/login",
-            json={"username": role, "password": password},
-        )
-        assert response.status_code == 200, response.text
-        out[role] = response.json()["access_token"]
-    return out
-
-
-@pytest.fixture
-def auth(tokens):
-    def _headers(role: str) -> dict[str, str]:
-        return {"Authorization": f"Bearer {tokens[role]}"}
-
-    return _headers
-
-
 @pytest.fixture
 def db():
     session = get_sessionmaker()()
@@ -171,4 +146,4 @@ def wait_for():
     return _wait
 
 
-__all__ = ["DEMO_PASSWORD", "ROOT"]
+__all__ = ["ROOT"]

@@ -11,7 +11,7 @@ from ...realtime.replay import engine as replay
 from ...repositories import fleet_repo as repo
 from ...schemas.ops import DemoStatus, Healthz, Readyz, SeedResult
 from ...services.retention import status_of
-from ..deps import CommanderOnly, DbSession
+from ..deps import DbSession
 
 router = APIRouter(tags=["ops"])
 
@@ -72,14 +72,14 @@ def readyz(db: DbSession):
 
 
 @router.post("/api/v1/seed/run", response_model=SeedResult)
-def run_seed(user: CommanderOnly):
+def run_seed():
     from ...seed.run import run
 
     return {"status": "seeded", "counts": run()}
 
 
 @router.post("/api/v1/ml/reload")
-def ml_reload(user: CommanderOnly):
+def ml_reload():
     """Re-read the ML artifact set from disk and warm it.
 
     The artifact directory is a bind mount, so a freshly staged booster is visible
@@ -104,24 +104,24 @@ def ml_reload(user: CommanderOnly):
 
 
 @router.get("/api/v1/demo/status", response_model=DemoStatus)
-def demo_status(user: CommanderOnly):
+def demo_status():
     return replay.status()
 
 
 @router.post("/api/v1/demo/pause")
-def demo_pause(user: CommanderOnly):
+def demo_pause():
     replay.pause()
     return replay.status()
 
 
 @router.post("/api/v1/demo/resume")
-def demo_resume(user: CommanderOnly):
+def demo_resume():
     replay.resume()
     return replay.status()
 
 
 @router.post("/api/v1/demo/tick")
-async def demo_tick(user: CommanderOnly):
+async def demo_tick():
     replay.pause()
     await replay.tick_once()
     return replay.status()
@@ -130,7 +130,6 @@ async def demo_tick(user: CommanderOnly):
 @router.get("/api/v1/audit")
 def audit_trail(
     db: DbSession,
-    user: CommanderOnly,
     entity: str | None = None,
     limit: int = 100,
 ):

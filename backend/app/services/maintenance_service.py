@@ -20,7 +20,6 @@ from ..core.errors import (
 from ..db.unit_of_work import UnitOfWork
 from ..domain.rules import recommended_action
 from ..domain.scheduling import back_in_service_breakdown, eta_date
-from ..models.auth import User
 from ..models.maintenance import (
     Agency,
     AgencyBooking,
@@ -51,7 +50,7 @@ def _next_reference(db: Session) -> str:
 
 
 # ── 35 ─────────────────────────────────────────────────────────────────────────
-def create_work_order(db: Session, payload: dict, user: User) -> dict:
+def create_work_order(db: Session, payload: dict) -> dict:
     aircraft = repo.get_aircraft(db, payload["aircraft"])
     if aircraft is None:
         raise NotFoundError(f"Aircraft {payload['aircraft']!r} not found")
@@ -83,21 +82,21 @@ def create_work_order(db: Session, payload: dict, user: User) -> dict:
             status="open",
             priority=payload.get("priority", "medium"),
             notes=payload.get("notes"),
-            created_by=user.id,
+            created_by=None,
             created_at=uow.as_of(),
             updated_at=uow.as_of(),
         )
         db.add(work_order)
         uow.flush()
-        after = _wo_out(work_order, aircraft.code, part.code, user)
+        after = _wo_out(work_order, aircraft.code, part.code)
         uow.audit(entity="work_order", entity_id=work_order.id, action="create",
-                  actor_id=user.id, actor_name=user.username, after=after)
+                  actor_id=None, actor_name="system", after=after)
 
     bus_payload = dict(after)
     return after | {"_event": work_order_created(bus_payload)}
 
 
-def update_work_order(db: Session, work_order_id: int, payload: dict, user: User) -> dict:
+def update_work_order(db: Session, work_order_id: int, payload: dict) -> dict:
     work_order = db.get(WorkOrder, work_order_id)
     if work_order is None:
         raise NotFoundError(f"Work order {work_order_id} not found")
@@ -130,28 +129,23 @@ def update_work_order(db: Session, work_order_id: int, payload: dict, user: User
 
     aircraft = repo.get_aircraft(db, work_order.aircraft_id)
     part = repo.get_part_by_id(db, work_order.part_id)
-    after = _wo_out(work_order, aircraft.code, part.code, user)
+    after = _wo_out(work_order, aircraft.code, part.code)
 
     with UnitOfWork(db) as uow:
         uow.audit(entity="work_order", entity_id=work_order.id, action="update",
-                  actor_id=user.id, actor_name=user.username,
+                  actor_id=None, actor_name="system",
                   before=before, after={"status": after["status"],
                                         "priority": after["priority"]})
 
     return after | {"_event": work_order_updated(after)}
 
 
-def _wo_out(wo: WorkOrder, aircraft_code: str, part_code: str, user: User | None) -> dict:
-    creator = None
-    if wo.created_by:
-        creator = {"id": user.id, "username": user.username, "full_name": user.full_name,
-                   "role": user.role.value if hasattr(user.role, "value") else user.role} \
-            if user else None
+def _wo_out(wo: WorkOrder, aircraft_code: str, part_code: str) -> dict:
     return {
         "id": wo.id, "reference": wo.reference, "aircraft": aircraft_code,
         "part": part_code, "action": wo.action, "due_date": wo.due_date,
         "due_cycle": wo.due_cycle, "status": wo.status, "priority": wo.priority,
-        "notes": wo.notes, "created_by": creator, "created_at": wo.created_at,
+        "notes": wo.notes, "created_by": None, "created_at": wo.created_at,
         "updated_at": wo.updated_at, "started_at": wo.started_at,
         "completed_at": wo.completed_at,
     }
@@ -170,12 +164,12 @@ def list_work_orders(db: Session, status: str | None, aircraft_id: int | None,
         part = repo.get_part_by_id(db, wo.part_id)
         if part_code and part.code != part_code:
             continue
-        items.append(_wo_out(wo, aircraft.code, part.code, None))
+        items.append(_wo_out(wo, aircraft.code, part.code))
     return {"items": items, "total": db.query(WorkOrder).count()}
 
 
 # ── 36 / 37 ────────────────────────────────────────────────────────────────────
-def update_spare(db: Session, part_ref_id: str, payload: dict, user: User) -> dict:
+def update_spare(db: Session, part_ref_id: str, payload: dict) -> dict:
     with UnitOfWork(db) as uow:
         spare = (
             db.query(Spare)
@@ -192,15 +186,15 @@ def update_spare(db: Session, part_ref_id: str, payload: dict, user: User) -> di
             spare.stock = new_stock
             db.add(StockMovement(spare_id=spare.id, delta=delta,
                                  reason=payload.get("reason", "restock"),
-                                 user_id=user.id, note=payload.get("note"),
+                                 user_id=None, note=payload.get("note"),
                                  created_at=uow.as_of()))
         uow.audit(entity="spare", entity_id=spare.part_ref_id, action=payload.get("reason", "restock"),
-                  actor_id=user.id, actor_name=user.username,
+                  actor_id=None, actor_name="system",
                   before=before, after={"stock": new_stock})
     return _spare_out(spare, None)
 
 
-def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None, user: User) -> dict:
+def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> dict:
     """SELECT ... FOR UPDATE — prevents oversell under concurrent reservations."""
     with UnitOfWork(db) as uow:
         spare = (
@@ -220,7 +214,7 @@ def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None, user
         before = spare.stock
         spare.stock -= 1
         db.add(StockMovement(spare_id=spare.id, delta=-1, reason="reserve",
-                             work_order_id=work_order_id, user_id=user.id,
+                             work_order_id=work_order_id, user_id=None,
                              created_at=uow.as_of()))
 
         wo_status = None
@@ -233,7 +227,7 @@ def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None, user
                 wo_status = work_order.status
 
         uow.audit(entity="spare", entity_id=spare.part_ref_id, action="reserve",
-                  actor_id=user.id, actor_name=user.username,
+                  actor_id=None, actor_name="system",
                   before={"stock": before}, after={"stock": spare.stock})
 
     result = {
@@ -289,7 +283,7 @@ def list_agencies(db: Session) -> dict:
     return {"items": items}
 
 
-def create_booking(db: Session, agency_id: int, payload: dict, user: User) -> dict:
+def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
     aircraft = repo.get_aircraft(db, payload["aircraft"])
     if aircraft is None:
         raise NotFoundError(f"Aircraft {payload['aircraft']!r} not found")
@@ -338,12 +332,12 @@ def create_booking(db: Session, agency_id: int, payload: dict, user: User) -> di
             lead_time_days=breakdown["lead_time_days"],
             eta_date=eta_date(breakdown["slot_days"], breakdown["turnaround_days"],
                               breakdown["lead_time_days"], stock),
-            created_by=user.id, created_at=uow.as_of(),
+            created_by=None, created_at=uow.as_of(),
         )
         db.add(booking)
         uow.flush()
         uow.audit(entity="agency", entity_id=agency.agency_ref_id, action="book",
-                  actor_id=user.id, actor_name=user.username,
+                  actor_id=None, actor_name="system",
                   after={"eta_date": str(booking.eta_date),
                          "back_in_service_days": breakdown["total"]})
 
@@ -385,7 +379,7 @@ def list_alerts(db: Session, acknowledged: bool | None, level: str | None,
     return {"items": items, "unacknowledged_count": repo.unacked_count(db)}
 
 
-def ack_alert(db: Session, alert_id: int, note: str | None, user: User) -> dict:
+def ack_alert(db: Session, alert_id: int, note: str | None) -> dict:
     with UnitOfWork(db) as uow:
         alert = repo.get_alert(db, alert_id)
         if alert is None:
@@ -393,19 +387,17 @@ def ack_alert(db: Session, alert_id: int, note: str | None, user: User) -> dict:
         before = {"acknowledged": alert.acknowledged}
         now = uow.as_of()
         alert.acknowledged = True
-        alert.acked_by = user.id
+        alert.acked_by = None
         alert.acked_at = now
         uow.audit(entity="alert", entity_id=alert.id, action="ack",
-                  actor_id=user.id, actor_name=user.username,
+                  actor_id=None, actor_name="system",
                   before=before, after={"acknowledged": True, "note": note})
 
     return {
         "id": alert.id, "acknowledged": True,
-        "acknowledged_by": {"id": user.id, "username": user.username,
-                            "full_name": user.full_name,
-                            "role": user.role.value if hasattr(user.role, "value") else user.role},
+        "acknowledged_by": None,
         "acknowledged_at": alert.acked_at, "note": note,
-        "_event": alert_acked({"id": alert.id, "acknowledged_by": user.username,
+        "_event": alert_acked({"id": alert.id, "acknowledged_by": "system",
                                "acknowledged_at": str(alert.acked_at)}),
     }
 

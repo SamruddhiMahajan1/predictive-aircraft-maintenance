@@ -18,7 +18,6 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
-from .auth import User
 from .fleet import Aircraft, Part
 
 
@@ -41,10 +40,9 @@ class Alert(Base):
     cycle: Mapped[int | None] = mapped_column(Integer)
     health: Mapped[float | None] = mapped_column(Numeric(4, 3))
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
-    acked_by: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    acked_by: Mapped[int | None] = mapped_column(Integer)
     acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="alerts")
     part: Mapped[Part] = relationship(back_populates="alerts")
-    acked_by_user: Mapped[User | None] = relationship(back_populates="alerts_acked")
