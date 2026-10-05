@@ -1,7 +1,7 @@
 """Operational endpoints — health, readiness, seed, demo controls."""
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from sqlalchemy import text
 
 from ...db.session import get_sessionmaker
@@ -10,6 +10,7 @@ from ...realtime.bus import bus
 from ...realtime.replay import engine as replay
 from ...repositories import fleet_repo as repo
 from ...schemas.ops import DemoStatus, Healthz, Readyz, SeedResult
+from ...services.retention import status_of
 from ..deps import CommanderOnly, DbSession
 
 router = APIRouter(tags=["ops"])
@@ -25,7 +26,7 @@ def _db_ok() -> bool:
 
 
 @router.get("/healthz", response_model=Healthz, include_in_schema=False)
-def healthz():
+def healthz(request: Request):
     """Liveness plus an honest statement of whether we are actually serving a model.
 
     A maintenance system that silently substitutes `rul = 125 - cycle` for a real
@@ -46,6 +47,9 @@ def healthz():
         "db": db_ok,
         "model": model,
         "replay": replay.status(),
+        # Reported, not asserted. A disabled or stalled pruner is how a small managed
+        # Postgres fills up silently while every other field here stays green.
+        "retention": status_of(getattr(request.app.state, "retention", None)),
     }
 
 

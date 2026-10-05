@@ -5,11 +5,14 @@ import { app, emit, setBackendStatus } from './store.js';
 import { applyHealthEvent, refreshFleet, startServerState } from './server.js';
 import { startLiveFleetSocket, fetchAlerts } from '../lib/api.js';
 
-// Pull the open alerts once on connect so the Alerts panel can acknowledge against real
-// backend ids immediately, instead of waiting for the next WS push (which may be minutes
-// away if no aircraft crosses a risk band).
+// Pull the open alerts so the Alerts panel can acknowledge against real backend ids, and
+// so acknowledgements made by *other* operators disappear here too.
+//
+// This used to run only on WebSocket (re)connect. Combined with the client discarding
+// `alert.acked`, an ack by a second operator stayed on screen — stale, and still
+// acknowledging — until this console's own socket happened to drop and reconnect.
 function hydrateAlerts() {
-  fetchAlerts().then((res) => {
+  return fetchAlerts().then((res) => {
     if (!res || !Array.isArray(res.items)) return;
     app.serverAlerts = res.items;
     emit();
@@ -34,6 +37,13 @@ function fallbackTick() {
   emit();
 }
 
+// Work-order mutations, all of which invalidate the derived schedule and action list.
+const WORK_ORDER_EVENTS = new Set(['work_order.created', 'work_order.updated']);
+
+// Alerts move on other operators' clocks, and nothing about this console's socket makes
+// that visible, so they get their own (slower) poll rather than riding the 3 s fleet one.
+const ALERT_POLL_MS = 10000;
+
 // Record where the newest prediction came from. A fallback tick while the backend is
 // connected used to be indistinguishable from a model-backed one: a healthy engine's
 // linear guess is roughly right, so `rul = 125 - cycle` looked like a real number.
@@ -52,6 +62,7 @@ function trackModel(payload) {
 
 export function startSimulation() {
   let fallbackTimer = null;
+  let alertTimer = null;
   const stopServerState = startServerState();
 
   // 1. Initial snapshot, then the socket for live values
@@ -79,10 +90,40 @@ export function startSimulation() {
           }
           emit();
         }
+      } else if (event.type === 'alert.acked') {
+        // Somebody acknowledged it — often not this console. Dropping it here is what
+        // makes a shared alert board behave like one.
+        const id = event.payload?.id;
+        if (id != null && Array.isArray(app.serverAlerts)) {
+          const next = app.serverAlerts.filter((x) => x.id !== id);
+          if (next.length !== app.serverAlerts.length) {
+            app.serverAlerts = next;
+            emit();
+          }
+        }
+      } else if (WORK_ORDER_EVENTS.has(event.type)
+                 || event.type === 'spare.reserved'
+                 || event.type === 'booking.created') {
+        // Work orders, stock levels and agency bookings are all derived across tables on
+        // the server, so re-read rather than patching a projection here — removing the
+        // latency the socket exists to remove is the entire point of using it.
+        refreshFleet().then((ok) => { if (ok) emit(); }).catch(() => {});
       }
     },
     (connected) => {
       setBackendStatus(connected);
+
+      // The alert poll is driven by reachability, not by the socket: `alert.raised` only
+      // fires when this process raises one, and alerts move on other operators' clocks.
+      // Gating it on `connected` alone left the panel frozen whenever the WebSocket was
+      // unavailable — a refused origin (4408), say — even though every read worked.
+      if (connected || app.apiReachable) {
+        if (!alertTimer) alertTimer = setInterval(hydrateAlerts, ALERT_POLL_MS);
+      } else if (alertTimer) {
+        clearInterval(alertTimer);
+        alertTimer = null;
+      }
+
       if (connected) {
         if (fallbackTimer) {
           clearInterval(fallbackTimer);
@@ -109,5 +150,6 @@ export function startSimulation() {
     stopSocket();
     stopServerState();
     if (fallbackTimer) clearInterval(fallbackTimer);
+    if (alertTimer) clearInterval(alertTimer);
   };
 }

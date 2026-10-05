@@ -12,18 +12,32 @@ const WS_BASE = `${window.location.origin.replace(/^http/, 'ws')}/ws/fleet`;
 const TOKEN_KEY = 'fdt.token';
 const USER_KEY = 'fdt.user';
 
-// Credentials used only until an explicit sign-in happens. The seeded demo accounts are
-// a documented fixture of this project (docs/01 §7), not a secret; a real deployment
-// signs in through the login form and the token below is never used.
-const DEMO_CREDENTIALS = { username: 'commander', password: 'commander123' };
+// The seeded demo accounts (docs/01 §7) are a documented fixture, not a secret — but they
+// must never be used *silently*. This used to be an automatic fallback: with no token,
+// every API call quietly POSTed commander/commander123 and the console came up already
+// authenticated as the most privileged role. On a public deployment that is an open
+// control room, and the "sign in" path in the UI was never reachable at all.
+//
+// So there is no implicit credential any more, and the demo sign-in is a build-time
+// option: `import.meta.env` is inlined by Vite, so this folds to a constant and a
+// production build deletes the whole branch — including the fixture password, which is
+// otherwise readable in the bundle by anyone who loads the page.
+const DEMO_ENABLED =
+  import.meta.env?.VITE_DEMO_MODE === 'true' ||
+  import.meta.env?.MODE === 'development';
 
 let currentToken = sessionStorage.getItem(TOKEN_KEY);
 let currentUser = readStoredUser();
-let loginPromise = null;
 let activeWs = null;
 let reconnectTimer = null;
 let reconnectAttempt = 0;
+let consecutiveAuthFailures = 0;
+let liveFilter = null;
 let stopped = false;
+
+// How many consecutive 4401 closes to tolerate before demanding a fresh sign-in. Without
+// a bound, an expired session produced an endless reconnect loop at a 30 s period.
+const MAX_AUTH_FAILURES = 2;
 
 const listeners = new Set();
 
@@ -59,44 +73,76 @@ export function getUser() {
   return currentUser;
 }
 
-export function logout() {
-  setSession(null, null);
+export function isDemoMode() {
+  return DEMO_ENABLED;
 }
 
+export function logout() {
+  setSession(null, null);
+  consecutiveAuthFailures = 0;
+}
+
+/**
+ * Exchange credentials for a session.
+ *
+ * @returns {Promise<{ok: true, user: object} | {ok: false, error: string}>} — never
+ *   throws, and never signs in anybody the caller did not name.
+ */
 export async function login(username, password) {
-  const creds = username ? { username, password } : DEMO_CREDENTIALS;
   try {
     const res = await fetch(`${API_BASE}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(creds),
+      body: JSON.stringify({ username, password }),
     });
-    if (!res.ok) throw new Error(`login failed: HTTP ${res.status}`);
+    if (res.status === 401) {
+      setSession(null, null);
+      return { ok: false, error: 'Incorrect username or password.' };
+    }
+    if (!res.ok) {
+      setSession(null, null);
+      return { ok: false, error: `Sign-in failed (HTTP ${res.status}).` };
+    }
     const data = await res.json();
     setSession(data.access_token, data.user);
-    return { token: currentToken, user: currentUser };
+    consecutiveAuthFailures = 0;
+    return { ok: true, user: data.user };
   } catch (err) {
     console.warn('[API] login failed:', err);
     setSession(null, null);
-    return null;
+    return { ok: false, error: 'Could not reach the server.' };
   }
 }
 
-/** Single in-flight login, so a burst of parallel calls does not race on the token. */
-async function ensureToken() {
-  if (currentToken) return currentToken;
-  if (!loginPromise) {
-    loginPromise = login().finally(() => {
-      loginPromise = null;
-    });
+/**
+ * The explicit demo sign-in.
+ *
+ * Unreachable from a production build — see `DEMO_ENABLED`. The credentials live inside
+ * this branch rather than in a module-level constant for that reason: a top-level object
+ * is always retained in the bundle, so the password would ship regardless of the flag.
+ */
+export async function loginAsDemo() {
+  if (!DEMO_ENABLED) {
+    return { ok: false, error: 'Demo sign-in is not available in this build.' };
   }
-  await loginPromise;
+  return login('commander', 'commander123');
+}
+
+/**
+ * The token for an outgoing call, or null.
+ *
+ * Deliberately does *not* authenticate. It used to log in as the demo commander as a
+ * side effect of "getting a token", which meant every fetch path could silently acquire
+ * a privileged session. Null propagates: the caller gets a 401-shaped result and the app
+ * shows the sign-in screen.
+ */
+async function ensureToken() {
   return currentToken;
 }
 
 async function request(path, { method = 'GET', body, retry = true } = {}) {
   const token = await ensureToken();
-  if (!token) return { ok: false, status: 0, body: null };
+  if (!token) return { ok: false, status: 401, body: null, unauthenticated: true };
 
   const res = await fetch(`${API_BASE}${path}`, {
     method,
@@ -284,8 +330,10 @@ export function startLiveFleetSocket(onEvent, onStatus) {
     if (stopped) return;
     const token = await ensureToken();
     if (!token) {
+      // Signed out. Retrying cannot help — there is nothing to authenticate with — and
+      // this used to spin forever on a 30 s timer, quietly re-attempting the demo
+      // credentials every half minute. Wait for an actual sign-in instead.
       onStatus?.(false);
-      scheduleReconnect(connect);
       return;
     }
 
@@ -300,9 +348,16 @@ export function startLiveFleetSocket(onEvent, onStatus) {
 
       ws.onopen = () => {
         reconnectAttempt = 0;
+        consecutiveAuthFailures = 0;
         // keep-alive: the server answers `ping` with `pong`, which doubles as proof
         // the stream is live rather than merely open.
         ws.send(JSON.stringify({ type: 'ping', payload: {} }));
+        // Subscriptions live only in the server's per-connection memory, so a reconnect
+        // starts from "everything" again. Re-assert whatever this client asked for,
+        // otherwise a filter silently stops filtering after one dropped connection.
+        if (liveFilter?.length) {
+          ws.send(JSON.stringify({ type: 'subscribe', payload: { aircraft: liveFilter } }));
+        }
         onStatus?.(true);
       };
 
@@ -317,9 +372,18 @@ export function startLiveFleetSocket(onEvent, onStatus) {
       ws.onclose = (event) => {
         onStatus?.(false);
         activeWs = null;
-        // 4401 unauthorized: the session is gone, so drop it before retrying or the
-        // loop would reconnect forever with a token the server rejects.
-        if (event.code === 4401) setSession(null, null);
+        if (event.code === 4401) {
+          // The token was rejected or expired. Drop it so the UI falls back to the
+          // sign-in screen, and stop retrying: reconnecting with a token the server has
+          // already refused can only fail again.
+          consecutiveAuthFailures += 1;
+          if (consecutiveAuthFailures >= MAX_AUTH_FAILURES) {
+            console.warn('[WS] giving up after repeated 4401; sign in again');
+            setSession(null, null);
+            return;
+          }
+          setSession(null, null);
+        }
         scheduleReconnect(connect);
       };
 
@@ -339,6 +403,24 @@ export function startLiveFleetSocket(onEvent, onStatus) {
     activeWs?.close();
     activeWs = null;
   };
+}
+
+/**
+ * Restrict this socket to a subset of the fleet, or pass `null` for everything.
+ *
+ * Applied immediately when a socket is open and remembered for the next `onopen`, since
+ * the server holds the filter per connection. Events that name no aircraft — alerts being
+ * acknowledged, spares reserved, bookings — are fleet-wide and always delivered.
+ */
+export function setLiveFleetFilter(codes) {
+  liveFilter = codes?.length ? [...codes] : null;
+  if (activeWs?.readyState === WebSocket.OPEN) {
+    activeWs.send(JSON.stringify(
+      liveFilter
+        ? { type: 'subscribe', payload: { aircraft: liveFilter } }
+        : { type: 'unsubscribe', payload: { aircraft: [] } },
+    ));
+  }
 }
 
 /** Exponential backoff with jitter, capped — a fixed 3 s retry storm-hammers a cold API. */

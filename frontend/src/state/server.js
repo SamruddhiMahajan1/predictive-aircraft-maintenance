@@ -59,7 +59,7 @@ export function isServerBacked() {
 
 /* ── fleet-wide ─────────────────────────────────────────────────────────────── */
 
-function applyAircraftList(body) {
+function applyAircraftList(body, issuedAt) {
   if (!body || !Array.isArray(body.items)) return;
   const seen = new Set();
 
@@ -74,9 +74,16 @@ function applyAircraftList(body) {
     e.homeBase = item.home_base;
     e.missionReady = item.mission_ready;
     e.risk = item.risk;
-    if (item.rul != null) e.rul = item.rul;
-    if (item.current_cycle != null) e.cycle = item.current_cycle;
-    if (item.engine_health != null) e.engineHealth = item.engine_health;
+    // Engine values change every 1.2s and arrive over the socket. A poll response can
+    // land after a `health.updated` that was already newer — the request was issued
+    // before the tick, the response arrives after it — and would otherwise roll the
+    // display back to a stale cycle until the next tick. `issuedAt` is when this poll
+    // went out, so anything the socket has applied since is strictly more recent.
+    if (issuedAt == null || (e.wsEngineAt || 0) <= issuedAt) {
+      if (item.rul != null) e.rul = item.rul;
+      if (item.current_cycle != null) e.cycle = item.current_cycle;
+      if (item.engine_health != null) e.engineHealth = item.engine_health;
+    }
     if (item.parts) {
       for (const [code, risk] of Object.entries(item.parts)) {
         const k = asUiPart(code);
@@ -145,6 +152,9 @@ function pushHistory(e, cycle, health) {
  * @returns {Promise<boolean>} whether the API answered at all
  */
 export async function refreshFleet() {
+  // Stamped before the requests go out, not when they come back — the comparison in
+  // applyAircraftList is against socket frames that arrived while this was in flight.
+  const issuedAt = Date.now();
   const [list, heat, summary, actions, schedule] = await Promise.all([
     fetchAircraftList(),
     fetchHeatmap(),
@@ -155,7 +165,7 @@ export async function refreshFleet() {
 
   if (!list && !heat && !summary) return false;   // nothing came back; keep what we have
 
-  applyAircraftList(list);
+  applyAircraftList(list, issuedAt);
   applyHeatmap(heat);
   if (summary) {
     derived.summary = summary;
@@ -246,6 +256,9 @@ export function applyHealthEvent(payload) {
   if (payload.rul != null) e.rul = payload.rul;
   if (payload.risk) e.risk = payload.risk;
   if (payload.cycle != null) e.cycle = payload.cycle;
+  // Marks these engine values as newer than any poll already in flight, so the response
+  // of a request issued before this frame cannot overwrite them (see applyAircraftList).
+  e.wsEngineAt = Date.now();
   return e;
 }
 
