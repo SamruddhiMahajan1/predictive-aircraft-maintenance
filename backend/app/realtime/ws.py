@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import suppress
 
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
@@ -22,6 +23,25 @@ WS_INTERNAL = 1011
 WS_TRY_AGAIN_LATER = 1013
 
 
+def allowed_origins(settings) -> set[str]:
+    """Origins permitted to open the fleet socket.
+
+    `FDT_CORS_ORIGINS` is the explicit allowlist. On top of it, Render injects
+    `RENDER_EXTERNAL_URL` — the service's own public URL — into every runtime,
+    including PR previews whose random `*.onrender.com` hostname cannot be known
+    when the blueprint is written. Trusting the platform-provided URL keeps the
+    check meaningful (arbitrary sites are still refused) without breaking the
+    live stream on renames, preview URLs or dashboard edits that forgot to
+    update the allowlist. Read from the environment per call, not from cached
+    settings, because it is platform state rather than app configuration.
+    """
+    allowed = set(settings.cors_origins or [])
+    render_url = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+    if render_url:
+        allowed.add(render_url)
+    return allowed
+
+
 @router.websocket("/ws/fleet")
 async def ws_fleet(
     websocket: WebSocket,
@@ -30,7 +50,8 @@ async def ws_fleet(
     settings = get_settings()
 
     origin = websocket.headers.get("origin")
-    if origin and settings.cors_origins and origin not in settings.cors_origins:
+    allowed = allowed_origins(settings)
+    if origin and allowed and origin not in allowed:
         await websocket.close(code=WS_BAD_ORIGIN, reason="origin not allowed")
         return
 

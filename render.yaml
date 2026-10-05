@@ -69,10 +69,10 @@ services:
       - key: FDT_LOG_LEVEL
         value: INFO
 
-      # The only origin that may call this API. ws.py skips its origin check entirely
-      # when this is empty, which would let any site open /ws/fleet; setting it to the
-      # service's own URL keeps the check meaningful. Render PR previews get random
-      # onrender.com URLs and need their origin added here.
+      # The only origin that may call this API. The WebSocket also accepts
+      # RENDER_EXTERNAL_URL — Render's own public URL for this service, including
+      # PR preview hostnames — so previews and renames keep the live stream
+      # without an allowlist edit. Custom domains still need adding here.
       - key: FDT_CORS_ORIGINS
         value: https://fleet-digital-twin.onrender.com
 

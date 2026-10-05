@@ -137,6 +137,34 @@ def test_websocket_answers_ping_with_pong(client):
         assert ws.receive_json()["type"] == "pong"
 
 
+def test_websocket_rejects_a_disallowed_origin(client):
+    """A browser on an arbitrary site must not be able to open the fleet socket."""
+    from starlette.websockets import WebSocketDisconnect
+
+    from app.realtime.ws import WS_BAD_ORIGIN
+
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect(
+            "/ws/fleet", headers={"origin": "https://evil.example"}
+        ) as ws:
+            ws.receive_json()
+    assert exc.value.code == WS_BAD_ORIGIN
+
+
+def test_websocket_accepts_the_platform_public_url(client, monkeypatch):
+    """PR previews get random hostnames that no allowlist can name in advance.
+
+    Render injects its own public URL as RENDER_EXTERNAL_URL; the socket must
+    accept it even when FDT_CORS_ORIGINS names only the production host, or
+    every preview deploy loses the live stream with a 4408.
+    """
+    preview = "https://fleet-digital-twin-pr-42.onrender.com"
+    monkeypatch.setenv("RENDER_EXTERNAL_URL", preview)
+    with client.websocket_connect("/ws/fleet", headers={"origin": preview}) as ws:
+        message = ws.receive_json()
+    assert message["type"] == "connection.ready"
+
+
 def test_ws_declares_the_1013_code_it_now_uses():
     """docs/09 promises 1013 on overflow; guard against it silently disappearing again."""
     from app.realtime.ws import WS_TRY_AGAIN_LATER
