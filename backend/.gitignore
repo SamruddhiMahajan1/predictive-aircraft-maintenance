@@ -19,8 +19,13 @@ report.xml
 seed_reconciliation.log
 
 # 43 MB of NASA C-MAPSS telemetry: third-party, unchanged upstream, re-fetched by
-# `make fetch-data`. Committing it made every clone 43 MB heavier for no benefit.
-data/cmapss/
+# `make fetch-data`. FD001 (~5.5 MB) is committed because every known public
+# mirror is dead and the Render build requires it. FD002–FD004 stay ignored.
+data/cmapss/*
+!data/cmapss/*_FD001.txt
+!data/cmapss/RUL_FD001.txt
+!data/cmapss/README.md
+!data/cmapss/readme.txt
 
 # Trained boosters and feature contracts. Produced by ml/notebooks/Model_training_249.ipynb
 # on a Colab VM, staged by `python -m scripts.stage_ml_artifacts`. A booster is ~900 KB
