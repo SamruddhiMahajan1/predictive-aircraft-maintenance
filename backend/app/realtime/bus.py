@@ -3,11 +3,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import suppress
 
 from ..core.config import get_settings
 from .events import Event
 
 log = logging.getLogger(__name__)
+
+
+class _Overflow:
+    """Sentinel telling a consumer its queue overflowed and it is being cut off.
+
+    Delivered through the subscriber's own queue, so the `drain()` task wakes up
+    instead of blocking forever on `queue.get()`. Identity (`is`), not equality.
+    """
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:                      # pragma: no cover — debug aid
+        return "<overflow>"
+
+
+OVERFLOW = _Overflow()
 
 
 class EventBus:
@@ -57,14 +74,27 @@ class EventBus:
             asyncio.run_coroutine_threadsafe(self.publish(event), loop)
 
     async def publish(self, event: Event) -> None:
-        """Fan out. A slow consumer is dropped rather than allowed to grow memory."""
+        """Fan out. A slow consumer is cut off rather than allowed to grow memory.
+
+        Dropping the queue from the fan-out is not enough on its own: the consumer's
+        drain task would sit on `queue.get()` forever, the socket would stay open, and
+        the client would show a live connection while its numbers silently froze. So an
+        overflowed subscriber also gets the OVERFLOW sentinel pushed into its queue (making
+        room for it first, since the queue is full by definition) and the consumer turns
+        that into a close (docs/09 §4).
+        """
         for q in list(self._subscribers):
             try:
                 q.put_nowait(event)
             except asyncio.QueueFull:
                 self._dropped += 1
                 self._subscribers.discard(q)
-                log.warning("dropping slow WebSocket consumer (%d total)", self._dropped)
+                # Already unsubscribed, so nothing else will fill it. Freeing one slot
+                # (or finding it already drained) guarantees the put below cannot fail.
+                with suppress(asyncio.QueueEmpty):
+                    q.get_nowait()
+                q.put_nowait(OVERFLOW)
+                log.warning("closing slow WebSocket consumer (%d total)", self._dropped)
 
 
 bus = EventBus()

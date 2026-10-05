@@ -207,7 +207,7 @@ sequenceDiagram
 
     UI->>WS: connect ?token=JWT
     WS-->>UI: connection.ready {aircraft:8, demo_mode:true, tick_seconds:1.2}
-    UI->>UI: open WS /ws/fleet (no polling anywhere)
+    UI->>UI: open WS /ws/fleet (plus a slower read poll)
 
     loop every 1.2 s
         EV->>WS: cycle.tick {cycle: 142}
@@ -225,12 +225,14 @@ sequenceDiagram
         UI->>UI: toast + banner + prepend to the alert list
     end
 
-    Note over UI,WS: The event payload carries everything the UI needs.<br/>No refetch on every tick — /fleet/summary is<br/>re-fetched only on mount and every 30 s.
+    Note over UI,WS: The event payload carries the per-tick values.<br/>No refetch on every tick — /fleet/summary is<br/>re-read on a 3 s poll, and /alerts every 10 s.
 ```
 
 **Performance rule for the frontend:** do **not** refetch `/fleet/summary` on every tick.
-The WebSocket payloads carry the changed values; a 30 s refresh reconciles anything missed
-during a reconnect.
+The WebSocket payloads carry the per-tick values; the fleet-wide reads keep their own slower
+poll (3 s, and 10 s for alerts) which also reconciles anything missed during a reconnect.
+Where both deliver the same field, the newer socket frame wins — a poll issued before a tick
+must not overwrite the tick that arrived while it was in flight.
 
 ---
 

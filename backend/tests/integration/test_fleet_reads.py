@@ -1,10 +1,28 @@
 """Fleet read endpoints — spec items 27-34, against the seeded database."""
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 
 PARTS = ["engine", "radar", "gear", "hyd", "fuel"]
 RISKS = {"healthy", "watch", "critical"}
+
+
+@contextmanager
+def frozen_replay(client, auth):
+    """Hold the replay still so two reads see the same data.
+
+    The replay engine advances all eight aircraft every 1.2 s for the whole session, so any
+    assertion spanning two HTTP requests compares two different snapshots. Pausing is the
+    only way to make a cross-endpoint relationship checkable — and without it those
+    assertions fail intermittently rather than deterministically, which is the worst kind.
+    """
+    client.post("/api/v1/demo/pause", headers=auth("commander"))
+    try:
+        yield
+    finally:
+        client.post("/api/v1/demo/resume", headers=auth("commander"))
 
 
 # ── 27 /fleet/summary ──────────────────────────────────────────────────────────
@@ -25,9 +43,11 @@ def test_summary_counts_the_seeded_fleet(client, auth):
 
 
 def test_summary_lowest_rul_is_the_minimum(client, auth):
-    summary = client.get("/api/v1/fleet/summary", headers=auth("viewer")).json()
-    fleet = client.get("/api/v1/aircraft", headers=auth("viewer")).json()
-    assert summary["lowest_rul_aircraft"]["rul"] == min(a["rul"] for a in fleet["items"])
+    # Two endpoints, so two snapshots — RUL moves every 1.2 s while the replay runs.
+    with frozen_replay(client, auth):
+        summary = client.get("/api/v1/fleet/summary", headers=auth("viewer")).json()
+        fleet = client.get("/api/v1/aircraft", headers=auth("viewer")).json()
+        assert summary["lowest_rul_aircraft"]["rul"] == min(a["rul"] for a in fleet["items"])
 
 
 def test_summary_average_rul_is_within_range(client, auth):
@@ -104,10 +124,11 @@ def test_aircraft_detail_by_code(client, auth):
 
 
 def test_aircraft_detail_by_numeric_id(client, auth):
-    by_code = client.get("/api/v1/aircraft/Fighter-01", headers=auth("viewer")).json()
-    by_id = client.get(f"/api/v1/aircraft/{by_code['id']}",
-                       headers=auth("viewer")).json()
-    assert by_code["code"] == by_id["code"]
+    with frozen_replay(client, auth):
+        by_code = client.get("/api/v1/aircraft/Fighter-01", headers=auth("viewer")).json()
+        by_id = client.get(f"/api/v1/aircraft/{by_code['id']}",
+                           headers=auth("viewer")).json()
+        assert by_code["code"] == by_id["code"]
 
 
 def test_aircraft_detail_flags_simulated_parts(client, auth):
@@ -321,12 +342,16 @@ def test_schedule_has_one_row_per_aircraft(client, auth):
 
 
 def test_schedule_worst_part_is_the_lowest_health(client, auth):
-    for row in client.get("/api/v1/maintenance/schedule",
-                          headers=auth("viewer")).json()["items"]:
-        detail = client.get(f"/api/v1/aircraft/{row['aircraft']}",
-                            headers=auth("viewer")).json()
-        lowest = min(p["health"] for p in detail["parts"])
-        assert row["worst_health"] == pytest.approx(lowest, abs=1e-3)
+    # Sixteen sequential requests against a fleet being rewritten underneath them: without
+    # the pause a part's health can change between the schedule row and the detail read, and
+    # this failed roughly one run in three.
+    with frozen_replay(client, auth):
+        for row in client.get("/api/v1/maintenance/schedule",
+                              headers=auth("viewer")).json()["items"]:
+            detail = client.get(f"/api/v1/aircraft/{row['aircraft']}",
+                                headers=auth("viewer")).json()
+            lowest = min(p["health"] for p in detail["parts"])
+            assert row["worst_health"] == pytest.approx(lowest, abs=1e-3)
 
 
 def test_schedule_spare_status_vocabulary(client, auth):

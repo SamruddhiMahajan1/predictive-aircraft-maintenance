@@ -56,12 +56,29 @@ def test_ingest_records_the_api_source(client, auth, db):
 
 
 def test_ingest_is_idempotent_for_the_same_cycle(client, auth, db):
+    """Re-posting the same cycles must upsert, not append.
+
+    Counted narrowly, on the cycles this payload actually writes. A count of the whole
+    `engine_telemetry` table cannot work here: the replay engine inserts rows for all eight
+    aircraft continuously, so the total moves between the two reads on its own — which is
+    why this failed intermittently, not because idempotency broke.
+    """
     payload = _batch(start=400, size=5)
     client.post("/api/v1/telemetry", headers=auth("officer"), json=payload)
-    before = db.scalar(select(func.count()).select_from(EngineTelemetry))
+
+    def written() -> int:
+        db.rollback()          # fresh transaction, so the second POST is visible
+        return db.scalar(
+            select(func.count()).select_from(EngineTelemetry).where(
+                EngineTelemetry.cycle.in_([400, 401, 402, 403, 404])
+            )
+        )
+
+    first = written()
+    assert first == 5, "the first ingest should have written every cycle"
+
     client.post("/api/v1/telemetry", headers=auth("officer"), json=payload)
-    after = db.scalar(select(func.count()).select_from(EngineTelemetry))
-    assert before == after
+    assert written() == first
 
 
 def test_ingest_advances_the_aircraft(client, auth):
@@ -219,22 +236,68 @@ def test_predict_window_above_thirty_is_422(client, auth):
                        json={"window": _predict_window(40)}).status_code == 422
 
 
+def _window_ending_at(cycle: int, size: int = 30) -> list[dict]:
+    """A scoring window whose last row is `cycle`.
+
+    Far-out cycle numbers matter for the `persist` tests: the replay engine writes this
+    table continuously, so a test that scores a cycle the replay is about to reach races
+    it. Cycles around 9100 are unreachable in a test run (the replay would need to walk an
+    engine to end of life first), which is the same trick `test_repredicting_a_cycle…` uses.
+    """
+    first = cycle - size + 1
+    return [{"cycle": c,
+             "settings": {"setting_1": 0.0, "setting_2": 0.0, "setting_3": 100.0},
+             "sensors": dict(SPEC_14)} for c in range(first, cycle + 1)]
+
+
+def _prediction_at(db, aircraft_code: str, cycle: int):
+    """The stored prediction for one aircraft/cycle, read in a fresh transaction.
+
+    `rollback()` first, so the read starts a new transaction and can see rows another
+    session committed after this one last looked.
+    """
+    from app.models.fleet import Aircraft
+
+    aircraft_id = db.scalar(select(Aircraft.id).where(Aircraft.code == aircraft_code))
+    assert aircraft_id is not None, f"{aircraft_code} is missing"
+    db.rollback()
+    return db.scalar(select(MlPrediction).where(
+        MlPrediction.aircraft_id == aircraft_id,
+        MlPrediction.cycle == cycle,
+    ))
+
+
 def test_predict_persist_false_writes_nothing(client, auth, db):
-    before = db.scalar(select(func.count()).select_from(MlPrediction))
+    """`persist: false` must not touch the table.
+
+    Asserted on the one (aircraft, cycle) this request would have written, not on a
+    before/after count of the whole table: the replay engine inserts into `ml_predictions`
+    continuously in the background, so the global count moves on its own and the delta was
+    never attributable to this request. That made the test fail whenever the replay ticked
+    inside the two reads.
+    """
+    cycle = 9102
+    assert _prediction_at(db, "Fighter-02", cycle) is None, "precondition"
+
     client.post("/api/v1/internal/ml/predict", headers=auth("officer"),
-                json={"aircraft": "Fighter-02", "window": _predict_window(),
+                json={"aircraft": "Fighter-02", "window": _window_ending_at(cycle),
                       "persist": False})
-    after = db.scalar(select(func.count()).select_from(MlPrediction))
-    assert before == after
+
+    assert _prediction_at(db, "Fighter-02", cycle) is None
 
 
 def test_predict_persist_true_writes_one_row(client, auth, db):
-    before = db.scalar(select(func.count()).select_from(MlPrediction))
+    """`persist: true` must leave exactly the row it scored."""
+    cycle = 9101
+    assert _prediction_at(db, "Fighter-02", cycle) is None, "precondition"
+
     client.post("/api/v1/internal/ml/predict", headers=auth("officer"),
-                json={"aircraft": "Fighter-02", "window": _predict_window(),
+                json={"aircraft": "Fighter-02", "window": _window_ending_at(cycle),
                       "persist": True})
-    after = db.scalar(select(func.count()).select_from(MlPrediction))
-    assert after == before + 1
+
+    row = _prediction_at(db, "Fighter-02", cycle)
+    assert row is not None, "persist: true did not write the scored row"
+    assert row.rul is not None
 
 
 def test_repredicting_a_cycle_refreshes_its_provenance(client, auth, db):

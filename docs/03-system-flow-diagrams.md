@@ -207,7 +207,7 @@ sequenceDiagram
         T->>BUS: publish health.updated {aircraft, part, health, risk}
         T->>BUS: publish alert.raised  {aircraft, part, level, message}
         BUS->>WS: fan-out to all subscribed sockets
-        T->>T: if cycle == max(unit) → wrap to cycle 1 (loop, no gap)
+        T->>T: if cycle == max(unit) → wrap to ml_window (loop, no gap)<br/>Note: not cycle 1 — that yields a short feature<br/>window and a silent fallback. docs/09 §1.2
     end
 ```
 

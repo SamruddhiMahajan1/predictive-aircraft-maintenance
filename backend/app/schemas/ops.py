@@ -258,6 +258,9 @@ class Healthz(BaseModel):
     db: bool
     model: dict[str, Any]
     replay: dict[str, Any]
+    # Pruner state: enabled/running/passes plus the horizon in force. Defaulted so a
+    # caller that predates retention still validates.
+    retention: dict[str, Any] = Field(default_factory=dict)
 
 
 class Readyz(BaseModel):

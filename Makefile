@@ -15,7 +15,7 @@ VENV          ?= backend/.venv
 BIN           := $(VENV)/bin
 
 .PHONY: help help-local up down restart logs ps rebuild migrate seed fresh setup fetch-data \
-        dev-backend dev-frontend lint typecheck test test-unit db-test db-test-down \
+        dev-backend dev-frontend lint typecheck test test-unit test-web build-api db-test db-test-down \
         fetch-model \
         db-dump db-restore clean distclean
 
@@ -97,13 +97,26 @@ db-restore: ## Restore backend/backup.sql.gz (destructive)
 ## ── quality ──────────────────────────────────────────────────────────────────
 
 lint: ## ruff over the API
+	@$(MAKE) build-api
 	@$(COMPOSE) run --rm --entrypoint ruff api check app tests scripts
 
 typecheck: ## mypy --strict over the pure layers (core, domain, ml)
+	@$(COMPOSE) build api
 	@$(COMPOSE) run --rm --entrypoint mypy api app/core app/domain app/ml
+
+# `build api` is load-bearing and must not be dropped.
+#
+# The api image COPYs backend/app and backend/tests (docker/backend/Dockerfile) and compose
+# bind-mounts no source, so `docker compose run api pytest` executes whatever was baked in
+# at the last build — not the working tree. Without this, a green suite can be reporting on
+# code that no longer exists: a whole new test file was silently not collected twice while
+# the count sat unchanged, and only the number moving gave it away.
+build-api: ## Rebuild the api image so containers see the current source
+	@$(COMPOSE) build api
 
 test: ## Full pytest suite against a disposable database
 	@$(MAKE) db-test
+	@$(MAKE) build-api
 	@$(COMPOSE) run --rm \
 		-e FDT_TEST_DATABASE_URL='postgresql+psycopg://fdt:fdt@db-test:5432/fdt_test' \
 		-e FDT_JWT_SECRET=test-secret-0123456789abcdefghijklmnop \
@@ -114,7 +127,11 @@ test: ## Full pytest suite against a disposable database
 	@$(MAKE) db-test-down
 
 test-unit: ## Pure domain tests, no database
+	@$(MAKE) build-api
 	@$(COMPOSE) run --rm -e FDT_DEMO_MODE=false --entrypoint pytest api tests/unit -q
+
+test-web: ## Frontend unit tests (node:test, no dependencies)
+	@npm --prefix frontend test
 
 db-test: ## Start the throwaway PostgreSQL the suite drops and recreates
 	@$(COMPOSE) --profile test up -d db-test

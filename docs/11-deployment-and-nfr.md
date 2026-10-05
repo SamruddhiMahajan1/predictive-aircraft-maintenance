@@ -494,7 +494,130 @@ The time-series tables are the source of truth; the denormalised columns are a c
 
 ---
 
-## 12. Non-functional traceability
+---
+
+## 13. Cloud deployment — Render (free) + Aiven PostgreSQL (free)
+
+`render.yaml` at the repository root is a Render Blueprint that deploys the whole stack to
+the free tier. This section is the reasoning; the file is the source of truth.
+
+### 13.1 One service, not two
+
+`frontend/src/lib/api.js` derives both its REST base and its WebSocket URL from
+`window.location.origin`, with no environment variable and no build-time injection. So the
+browser and the API have to share an origin.
+
+That is why this is a single web service that serves the Vite build itself, rather than a
+Render Static Site next to a web service: **a Render Static Site cannot reverse-proxy
+`/api` or upgrade `/ws`** — it supports only redirects and headers. Splitting the tiers
+would send every API call to the static site.
+
+`_mount_frontend` in `app/main.py` therefore claims exactly three paths: `/` for the shell
+and `/assets` + `/models` for what Vite emits. It deliberately does **not** mount
+`StaticFiles` at `/`. A mount at `/` matches every path, and Starlette takes the first
+*complete* match, so an API request whose path matches but whose method does not — a GET
+to the POST-only `/api/v1/auth/login` — only partially matches the router, falls through
+into the mount, and is answered 404 for a missing file instead of 405. That regression is
+pinned by `tests/integration/test_web_mount.py::test_method_mismatch_still_reports_405`.
+
+Under Compose nothing changes: nginx still terminates the origin, `FDT_WEB_DIST` is never
+set, and `_mount_frontend` logs `no web build` and returns.
+
+### 13.2 Storage retention — the load-bearing part
+
+The replay engine writes an `engine_telemetry`, `component_health`, `health_snapshot` and
+`ml_prediction` row per aircraft per tick, and nothing else ever deletes them. Measured
+with `pg_total_relation_size` against a running instance, that is **~5.4 KB per
+aircraft-tick** — `ml_prediction` dominates at ~3.4 KB a row, its two JSONB columns plus
+indexes. At the default 1.2 s tick across eight aircraft: **~36 KB/s, ~3 GB/day, ~93
+GB/month.**
+
+On a 1 GB plan that fills the disk in about eight hours, and because there is no storage
+cap it fails as a wall of raised exceptions per tick rather than as a clean degradation —
+the replay loop's `except` keeps it running while every tick does nothing useful.
+
+`app/services/retention.py` bounds it. `FDT_TELEMETRY_RETENTION_HOURS` defaults to 1,
+which is **~141 MB steady state** on the 1 GB plan. Cost is linear: 3 h would be ~400 MB,
+40% of the disk.
+
+The horizon can be that short because the only reader, `fleet_repo.engine_history`, asks
+for the most recent N *cycles* rather than a time range, and one C-MAPSS engine lifetime
+is ~176 ticks — about 3.5 minutes. One hour still covers every cycle an engine will ever
+produce, ~17x over, so the history chart sees no gaps. Drop it below ~30 s
+(`ml_window`-many ticks) and it would.
+
+Deletion is safe against the replay writer because all four inserts go through
+`on_conflict_do_update` on `(aircraft_id, cycle)`: removing rows can only remove conflict
+targets, never introduce one.
+
+The pruner lives on `app.state`, not in a module singleton. Its asyncio task belongs to
+the event loop of the app that started it, so a shared instance cannot be stopped safely
+from a second app's loop.
+
+### 13.3 Provisioning
+
+1. **Aiven** — create a free PostgreSQL service. Note the region.
+2. Rewrite the URL. Aiven issues `postgres://user:pass@host:port/db?sslmode=require`;
+   SQLAlchemy 2.0 needs `postgresql+psycopg://...`. Keep `sslmode=require`.
+3. **Render** — New -> Blueprint -> select the repo, set `region` to match Aiven, paste
+   `FDT_DATABASE_URL` when prompted.
+
+### 13.4 Environment notes
+
+| Variable | Why |
+|---|---|
+| `FDT_ENVIRONMENT=production` | Enforced with a generated `FDT_JWT_SECRET`; the API refuses to boot on the committed development secret. This deployment no longer has to misreport itself as `staging` to run the replay — `FDT_DEMO_MODE` picks a telemetry source, not a security posture. |
+| `FDT_DEMO_MODE=true` | Runs the replay engine, so the twin is live with no ingest feed. Set false only when something real posts to `POST /api/v1/telemetry`. |
+| `FDT_SEED_ON_BOOT=true` | A free Render service cannot be shelled into to run `python -m app.seed.run`. Without it a fresh volume has no rows at all and every login is a 401. Idempotent, and it reconciles accounts separately from the fleet, so it costs one COUNT per cold start. |
+| `FDT_CORS_ORIGINS` = the service URL | `ws.py` skips its origin check entirely when this list is empty, which would let any site open `/ws/fleet` with a valid token. Setting it keeps the check meaningful. Render PR previews get random `onrender.com` URLs and need their origin added. |
+| `FDT_DATA_DIR`, `FDT_WEB_DIST` absolute | Both resolve against the CWD, and the process runs from `backend/`. |
+| `FDT_ML_FALLBACK=false` | The artifacts are committed to git (`backend/data/ml/all`, ~1.2 MB), so there is nothing to fetch. With the booster present the fallback cannot trigger, and if it ever did every prediction would silently become `rul = 125 - cycle`. |
+| `FDT_DB_POOL_SIZE=3`, `FDT_DB_MAX_OVERFLOW=2` | Aiven free caps `max_connections` at 20. The defaults (5 + 10) could reach 15 from one instance before Alembic and transients. |
+| `FDT_SEED_ON_BOOT=true` | Nobody can shell into a Render free service to run `python -m app.seed.run`. No-ops once any aircraft exists, so it costs one COUNT per cold start. |
+
+The ML artifacts need no hosting: `backend/data/ml/all/` is committed. Only
+`data/cmapss/` is gitignored, and the build fetches just `--subset FD001` (~2.7 MB of the
+43 MB) because `replay_subset` resolves to `ml_dataset`, which is FD001.
+
+Two entries in the start command are not free-tier limits and must not be relaxed:
+`--workers 1` (the replay engine is an in-process task, so a second worker would run a
+second replay loop and double-advance every aircraft) and `cd backend` (`alembic.ini` has a
+relative `script_location`).
+
+### 13.5 Free-tier limits to expect
+
+| Limit | Effect |
+|---|---|
+| Render spins down after 15 min idle | ~1 min cold start. WebSocket messages count as inbound traffic. |
+| 512 MB RAM | `import xgboost` plus numpy is ~200 MB RSS before FastAPI. Fits, but it is the tightest resource here. |
+| Aiven powers off when idle | Adds a database wake to the worst-case cold start. |
+| Aiven 1 GB, `max_connections=20` | See 13.2 and 13.4. |
+
+### 13.6 Verifying a deploy
+
+```
+GET /healthz            status "ok", model.degraded absent, retention.running true
+GET /                   200, text/html - the Vite shell
+GET /models/rafale.glb  200 - the 3D binaries
+GET /api/v1/aircraft    200 authed, 401 without
+```
+
+In the browser: the bundle loads, the WebSocket must not close with 4408 (bad origin) or
+4401 (bad token), and `/healthz` -> `replay.tick` must climb.
+
+Confirm storage is bounded rather than merely working:
+
+```sql
+SELECT relname, n_live_tup FROM pg_stat_user_tables
+ WHERE relname IN ('engine_telemetry','health_snapshot','ml_prediction','component_health')
+ ORDER BY n_live_tup DESC;
+```
+
+Steady state is flat. Linear growth means the pruner is disabled or not running.
+
+---
+
+## 14. Non-functional traceability
 
 | Spec | Requirement | Implementation | Verified by |
 |---|---|---|---|
@@ -505,3 +628,5 @@ The time-series tables are the source of truth; the denormalised columns are a c
 | 53 | Dockerfile and compose with API and Postgres | §2, §3 | `docker compose up` from clean |
 | 8 | Runs offline, no external calls | §1 | CI network-egress assertion |
 | 6 | OpenAPI docs at `/docs` | [02](02-backend-architecture.md) | Phase 1 exit criteria |
+| — | Runs on a free cloud tier | §13, `render.yaml` | Blueprint deploy + §13.6 checks |
+| — | Bounded storage under continuous replay | §13.2, `app/services/retention.py` | `tests/integration/test_retention.py` |

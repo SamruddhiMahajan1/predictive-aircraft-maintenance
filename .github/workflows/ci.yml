@@ -94,7 +94,7 @@ jobs:
           retention-days: 7
 
   web:
-    name: Web · build
+    name: Web · test, build
     runs-on: ubuntu-latest
 
     defaults:
@@ -112,6 +112,12 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      # The console's sign-in path is only exercised here. It had no test coverage at all
+      # while the client silently authenticated itself as the demo commander on every
+      # deployment, so nothing would have caught that behaviour — or its removal.
+      - name: Test (node:test, no dependencies)
+        run: npm test
 
       - name: Build
         run: npm run build

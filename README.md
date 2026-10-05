@@ -694,13 +694,26 @@ make db-restore     # restore (destructive)
 | WebSocket | Origin check plus token verification before `accept()`; closes with `4401`/`4408` |
 | SQL injection | SQLAlchemy parameter binding throughout; the only string-built SQL is a static `COUNT` label in the performance tests |
 | Secrets | `.env` is gitignored; `.env.example` holds placeholders only |
-| Production misconfiguration | The API refuses to start on the committed development JWT secret, or with demo mode enabled, when `FDT_ENVIRONMENT=production` |
+| Production misconfiguration | The API refuses to start on the committed development JWT secret when `FDT_ENVIRONMENT=production` |
 | Audit | Every mutation records actor, action, entity and a JSON diff |
 | Transport | nginx serves over plain HTTP by default — terminate TLS at the load balancer or add a `listen 443 ssl` block to `docker/frontend/nginx.conf.template` |
 
 **Before deploying for real:** the three demo accounts and their passwords are committed
 in `backend/app/seed/run.py` and must be removed or rotated; and `FDT_JWT_SECRET` must be
 generated per environment.
+
+`FDT_DEMO_MODE` chooses where telemetry comes from, not how secure the deployment is, so it
+no longer conflicts with `FDT_ENVIRONMENT=production`. With it on, the replay engine feeds
+the twin from the seeded C-MAPSS engines; with it off, nothing moves unless something posts
+to `POST /api/v1/telemetry`.
+
+The console requires an explicit sign-in. It used to have none: `ensureToken()` quietly
+authenticated as the demo commander whenever no token was held, so every deployment — public
+or not — came up already authenticated with the most privileged role. The demo shortcut is
+now a visible button shown only when `VITE_DEMO_MODE=true`. A production build does not
+merely hide it: the branch — and the fixture password inside it — is dead-code-eliminated
+out of the bundle. `tests/bundle.test.mjs` asserts this against a real build, because the
+first implementation shipped the password anyway while merely hiding the button.
 
 ---
 
@@ -787,6 +800,9 @@ run exactly one.
 ## Demo accounts
 
 Seeded by `python -m app.seed.run`. **Demo fixtures — remove or rotate before deploying.**
+The sign-in screen offers `commander` as a one-click shortcut only when `VITE_DEMO_MODE=true`
+(a dev build, or an explicit build-arg opt-in). A production build shows the
+username/password form, no shortcut, and no copy of the fixture credentials.
 
 | Role | Username | Password | Can do |
 |---|---|---|---|

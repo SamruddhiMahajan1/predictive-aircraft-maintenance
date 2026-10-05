@@ -47,6 +47,26 @@ class Settings(BaseSettings):
     demo_tick_seconds: float = 1.2
     ws_queue_size: int = 256
 
+    # storage retention
+    # The replay engine appends four rows per aircraft per tick and nothing else ever
+    # deletes them. Measured against Postgres, that is ~5.4 KB per aircraft-tick
+    # (`ml_prediction`'s two JSONB columns dominate) — ~36 KB/s across the seeded fleet,
+    # or ~93 GB a month. See services/retention.py.
+    #
+    # 1 h is ~141 MB steady state on the 1 GB plan this deploys to, and still ~17x the
+    # ~3.5 min wall-clock lifetime of one engine's cycle range, so the history chart sees
+    # no gaps. Raising it is linear: 3 h would already be ~400 MB, 40% of the disk.
+    #
+    # 0 disables the pruner — correct on a developer machine, a disk-exhaustion bug on a
+    # small managed instance.
+    telemetry_retention_hours: float = 1.0
+    retention_interval_seconds: float = 300.0
+
+    # Seed the fleet on boot when the database is empty. For deployments where nobody
+    # can shell in and run `python -m app.seed.run`. No-op once any aircraft exists, so
+    # it costs one cheap COUNT on every start rather than a full re-seed.
+    seed_on_boot: bool = False
+
     # domain
     rul_cap: int = 125
 
@@ -78,11 +98,42 @@ class Settings(BaseSettings):
     # build instead of silently degrading the replay engine to an empty dataset.
     data_dir: Path = Path("data")
 
+    # The built Vite bundle, served by this process when there is no nginx in front of
+    # it (see the `_mount_frontend` note in app/main.py). Resolved relative to the
+    # process CWD, exactly like `data_dir` above, so on a single-service deployment it
+    # must be set to an absolute path — the process runs from `backend/` to satisfy
+    # alembic's relative `script_location`, where `frontend/dist` does not resolve.
+    # Unset or missing means "serve the API only"; it is never an error.
+    web_dist: Path = Path("frontend/dist")
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def _split_origins(cls, v: object) -> object:
         if isinstance(v, str):
             return [o.strip() for o in v.split(",") if o.strip()]
+        return v
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _normalize_database_url(cls, v: object) -> object:
+        """Force the SQLAlchemy 2 driver onto any PostgreSQL URL.
+
+        Hosted providers hand out a bare libpq URL — Render, Aiven, Neon, Supabase and
+        Heroku all issue `postgres://…` — while SQLAlchemy 2 will not load `psycopg2` for
+        that scheme unless it happens to be installed, and this project pins `psycopg`
+        (v3). The failure is a bare `ModuleNotFoundError` or a `Can't load plugin` at
+        startup, which reads as a broken build rather than a copied URL.
+
+        Normalising here means an operator can paste the provider's URL verbatim instead
+        of hand-editing the scheme, which is a step that silently breaks the deploy when
+        mistyped. An explicit `postgresql+psycopg://` (what .env.example ships) is
+        unchanged, and any other driver the operator chose on purpose is left alone.
+        """
+        if not isinstance(v, str):
+            return v
+        for bare in ("postgres://", "postgresql://"):
+            if v.startswith(bare):
+                return f"postgresql+psycopg://{v[len(bare):]}"
         return v
 
     @model_validator(mode="after")
@@ -92,18 +143,19 @@ class Settings(BaseSettings):
         A default that silently works in production is how a demo repo turns into a
         token-forging incident. `docker compose` already makes FDT_JWT_SECRET mandatory;
         this closes the same hole for a bare `uvicorn`/`make run`.
+
+        Note what is deliberately *not* checked: `demo_mode`. It selects a telemetry source
+        and is not a security property. It was previously rejected in production, which
+        combined with the replay gating on `demo_mode` to make every combination broken —
+        production was a dead twin, and the only working configuration was `staging`. See
+        docker-compose.prod.yml and docs/11 §13.4.
         """
-        if self.environment == "production":
-            if self.jwt_secret == DEV_JWT_SECRET:
-                raise ValueError(
-                    "FDT_JWT_SECRET still holds the development placeholder while "
-                    "FDT_ENVIRONMENT=production. Generate one with "
-                    "`openssl rand -hex 32`."
-                )
-            if self.demo_mode:
-                raise ValueError(
-                    "FDT_DEMO_MODE must be false when FDT_ENVIRONMENT=production."
-                )
+        if self.environment == "production" and self.jwt_secret == DEV_JWT_SECRET:
+            raise ValueError(
+                "FDT_JWT_SECRET still holds the development placeholder while "
+                "FDT_ENVIRONMENT=production. Generate one with "
+                "`openssl rand -hex 32`."
+            )
         return self
 
     @property

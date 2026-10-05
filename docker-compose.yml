@@ -113,6 +113,11 @@ services:
     build:
       context: .
       dockerfile: docker/frontend/Dockerfile
+      args:
+        # Gates the demo sign-in shortcut in the bundle. Defaults off, so the committed
+        # fixture credentials are not shipped to whoever loads the page. Set
+        # VITE_DEMO_MODE=true in .env to keep the one-click demo locally.
+        VITE_DEMO_MODE: ${VITE_DEMO_MODE:-false}
     depends_on:
       api: { condition: service_healthy }
     ports:

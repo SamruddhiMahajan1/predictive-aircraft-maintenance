@@ -29,12 +29,18 @@ flowchart LR
 
 ### 1.2 Loop and wrap
 
-FD001 engines run 128–362 cycles. On reaching an engine's last cycle the replay **wraps to
-cycle 1** rather than stopping.
+FD001 engines run 128–362 cycles. On reaching an engine's last cycle the replay **wraps
+back to `ml_window` (30)** rather than stopping — see the note below on why not 1.
 
 The wrap is the part that needs care. Three things must be reset or the demo visibly breaks:
 
-1. **Cycle number** → back to 1.
+1. **Cycle number** → back to 30 (`ml_window`). Wrapping to 1 was tried first and is wrong:
+   it hands `cmapss.window` a single row, `build_window` rejects anything under five cycles,
+   and so the first four ticks after every wrap were silently answered by the
+   `rul = 125 - cycle` fallback instead of the model. Restarting at `ml_window` skips
+   cycles 1–29 — the least informative ones, all healthy and well above the RUL cap — and
+   buys a complete feature window, so every prediction is model-backed. The engine is still
+   walked to genuine end of life first.
 2. **EMA state** → cleared, otherwise the new trajectory's health starts from the previous
    engine's final (near-zero) value and takes ~10 cycles to climb back, showing a
    resurrection curve that looks like a bug.
@@ -43,9 +49,8 @@ The wrap is the part that needs care. Three things must be reset or the demo vis
 Nothing else needs resetting: risk, alerts, work orders, spares and bookings are operational
 state that legitimately persists across a replay loop.
 
-The wrap is **instantaneous** — cycle *N* is immediately followed by cycle 1 of the same
-engine. No pause, no fade. `loop_count` increments on `aircraft` so the frontend can label
-the run if it wants to.
+The wrap is **instantaneous** — cycle *N* is immediately followed by cycle 30 of the same
+engine. No pause, no fade.
 
 ### 1.3 Staggered start offsets
 
@@ -76,10 +81,9 @@ async def _tick(self) -> None:
     for aircraft in self.active_aircraft:          # 8 rows, cached at start
         row = self.cmapss.next_row(aircraft.cmapss_unit_id, aircraft.current_cycle + 1)
         if row is None:
-            aircraft.current_cycle = 1
+            aircraft.current_cycle = self._resume_cycle(aircraft.cmapss_unit_id)  # 30
             self.ml.reset_ema(aircraft.id)         # clears EMA state
-            row = self.cmapss.next_row(aircraft.cmapss_unit_id, 1)
-            aircraft.loop_count += 1
+            row = self.cmapss.next_row(aircraft.cmapss_unit_id, aircraft.current_cycle)
 
         window = self.cmapss.window(aircraft.cmapss_unit_id, 30)   # trailing 30
         pred = await self.loop.run_in_executor(self.ml.predict, window)
@@ -158,6 +162,17 @@ overflow the socket is closed with `1013 Try again later` so the client reconnec
 fresh state instead of silently missing alerts. Silent drops would be worse than a visible
 disconnect.
 
+The close needs the overflow to be *communicated*, not just inferred: discarding the queue
+from the fan-out leaves the consumer's drain task waiting on `queue.get()` forever, so the
+socket stays open, the client keeps showing "Backend Live", and the numbers simply freeze —
+a full socket never trips the false→true transition that triggers a REST resync. So
+`EventBus.publish` also pushes an `OVERFLOW` sentinel into the offending queue (evicting one
+queued event to make room), and `ws.drain()` turns it into the `1013` close.
+
+**Aircraft filters do not apply to fleet-wide events.** `spare.reserved` and `alert.acked`
+carry no `aircraft` key, so a subscriber filtered to some aircraft must still receive them —
+a filter narrows the per-aircraft stream, it does not suppress the whole company.
+
 ---
 
 ## 3. WebSocket protocol
@@ -220,9 +235,14 @@ error-prone than gap detection.
 { "type": "ping",        "payload": {} }
 ```
 
-`ping` → `pong` within one interval. The client also sends an app-level ping every 20 s;
-combined with the server's own liveness check, a half-open connection is detected within
-roughly 25 s.
+`ping` → `pong` within one interval. The client sends one `ping` when the socket opens and
+relies on uvicorn's protocol-level keepalive (20 s / 20 s) after that; there is no repeating
+app-level ping. The server additionally re-checks the token every 30 s, so a socket whose
+credential has since expired is closed with `4401` even when no events are flowing.
+
+Subscriptions are per-connection server state. The client remembers its filter and re-sends
+`subscribe` in `onopen`, because a reconnect otherwise starts from "everything" and a filter
+would silently stop filtering after one dropped connection.
 
 ### 3.4 Close codes
 
@@ -279,8 +299,18 @@ sequenceDiagram
 ```
 
 **Frontend performance rule.** Do not refetch `/fleet/summary` on every tick. The event
-payloads carry the changed values; a 30 s refresh reconciles anything missed. Refetching a
-10 Hz dashboard poll would make the backend look slow when it is not.
+payloads carry the changed values. Refetching at the 1.2 s tick rate would make the backend
+look slow when it is not.
+
+**The socket is an overlay, not a replacement for the read API.** The fleet-wide read
+endpoints are still polled, on a 3 s interval; the socket exists to remove the *extra* latency
+on the handful of values that move every tick, plus the per-prediction ML provenance that no
+read endpoint carries. Where both channels deliver the same field, the socket wins if it is
+newer: a poll response issued at *t* can arrive after a `health.updated` that is already
+fresher, and letting it overwrite would visibly rewind the cycle counter.
+
+Alerts get their own, slower 10 s poll, because they move on *other* operators' clocks and
+`alert.raised` only fires when this process raises one.
 
 **Only engine health changes per tick.** The other four parts derive from maintenance
 history, which does not move during a replay tick, so they are written once at seed. Their

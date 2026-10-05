@@ -2,6 +2,7 @@ import { useStore } from '../state/useStore.js';
 import { toggleTheme } from '../state/store.js';
 import { fleet } from '../data/fleet.js';
 import { rul } from '../lib/health.js';
+import { logout } from '../lib/api.js';
 
 // A per-tick fallback (rejected window, failed inference) leaves the model loaded and
 // /healthz green, so the numbers on screen look model-backed either way. Say which.
@@ -73,7 +74,19 @@ export default function Navbar() {
         {app.backendConnected ? 'Backend Live' : 'Connecting...'}
       </span>
       <ModelBadge model={app.model} connected={app.backendConnected} apiReachable={app.apiReachable} />
-      {app.user && <span className="role-badge" title="Authenticated User">{app.user.role}</span>}
+      {app.user && (
+        <span className="role-badge" title={`Signed in as ${app.user.username} (${app.user.role})`}>
+          {app.user.username} · {app.user.role}
+        </span>
+      )}
+      {/* The console has always had a role badge, but no way to end the session — there
+          was no session to end, because sign-in was implicit. Now that it is explicit,
+          signing out has to be reachable from here. */}
+      {app.user && (
+        <button type="button" className="signout" onClick={logout} title="End this session">
+          Sign out
+        </button>
+      )}
       <nav className="links">
         <a href="#twin">Aircraft</a>
         <a href="#health">Health</a>
