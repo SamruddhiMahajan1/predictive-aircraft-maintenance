@@ -152,6 +152,31 @@ export function acknowledge(key) {
   });
 }
 
+/**
+ * Record model provenance from a REST payload (`/healthz` or engine detail).
+ *
+ * The navbar badge used to learn this only from WebSocket `health.updated`
+ * frames, so on any network that blocks the Upgrade handshake (office
+ * middleboxes, some mobile carriers) it read "Awaiting model" forever while
+ * every REST panel showed real numbers. REST and WS shapes differ slightly
+ * (`error` vs `reason`); both are accepted. Tick counting stays with the WS
+ * path — REST hydrations preserve the count rather than inflating it.
+ */
+export function setModelStatus(m) {
+  if (!m || m.version == null) return;
+  const prev = app.model;
+  const fallback = !!m.fallback;
+  const same = fallback && prev.fallback && prev.version === m.version;
+  app.model = {
+    version: m.version,
+    fallback,
+    degraded: !!m.degraded,
+    reason: m.reason ?? m.error ?? null,
+    staleTicks: same ? prev.staleTicks : (fallback ? 1 : 0),
+  };
+  emit();
+}
+
 export function setBackendStatus(connected) {
   const was = app.backendConnected;
   app.backendConnected = connected;

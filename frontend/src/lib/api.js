@@ -161,6 +161,25 @@ export async function fetchPartDetail(codeOrId, part) {
   }
 }
 
+/**
+ * Liveness + model provenance, served from the origin root (not /api/v1).
+ * Single attempt, short timeout, never throws: this is a background hydrator
+ * for the navbar badge, so it must be invisible when the backend is down.
+ */
+export async function fetchHealth() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const res = await fetch(`${window.location.origin}/healthz`, { signal: ctrl.signal });
+    if (!res.ok) return null;
+    return await res.json().catch(() => null);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function fetchAlerts() {
   try {
     const { ok, body } = await getWithRetry('/alerts?limit=50');
