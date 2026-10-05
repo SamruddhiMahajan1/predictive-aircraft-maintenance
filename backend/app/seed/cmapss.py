@@ -15,8 +15,6 @@ import logging
 from pathlib import Path
 from typing import Any
 
-import numpy as np
-
 from ..core.config import Settings, get_settings
 
 log = logging.getLogger(__name__)
@@ -135,6 +133,12 @@ class CMapss:
 
 
 def _read_train(path: Path, subset: str) -> dict[int, dict[int, dict]]:
+    # numpy is imported here, not at module scope: `app.main` imports this module
+    # at startup, and numpy costs ~1s on a free-tier shared CPU before the port
+    # is even bound. Parsing already runs in a background thread, so the import
+    # rides along with it instead of blocking process boot.
+    import numpy as np
+
     # reshape: loadtxt drops the row axis for a single-row file, and FD004 has
     # engine 1 alone in small extracts.
     data = np.loadtxt(path).reshape(-1, len(COLUMNS))
@@ -164,6 +168,8 @@ def _read_rul(path: Path, subset: str) -> list[float] | None:
     if not path.exists():
         return None
     try:
+        import numpy as np
+
         return [float(x) for x in np.loadtxt(path).reshape(-1)]
     except Exception as exc:  # noqa: BLE001 — a bad label file must not stop startup
         log.warning("RUL_%s.txt unreadable (%s)", subset, exc)

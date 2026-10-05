@@ -31,8 +31,15 @@ services:
       (bash scripts/fetch-cmapss.sh --subset FD001 --quiet || true)
 
     # `cd backend` is load-bearing: alembic.ini has `script_location = alembic` and
-    # `prepend_sys_path = .`, both relative to CWD, so alembic cannot run from the
-    # repository root.
+    # `prepend_sys_path = .`, both relative to CWD — and the lifespan migration in
+    # `app/main.py::_migrate_schema` resolves `alembic.ini` the same relative way.
+    #
+    # No `alembic upgrade head` here on purpose: it used to run before uvicorn bound
+    # the port — a second interpreter boot plus a cross-region database round trip
+    # during which Render answers every request with 502, on each cold start and
+    # each deploy. Migrations now run inside the lifespan background task after the
+    # port is bound (Render-only, via the RENDER env var), so the 502 window is just
+    # the bare interpreter boot. See `_migrate_schema`.
     #
     # `--workers 1` is not a free-tier limit and must not be raised: the replay engine
     # is an in-process asyncio task, so a second worker would run a second replay loop
@@ -41,10 +48,23 @@ services:
     # `--port $PORT` because Render injects the port; the Dockerfile's 8000 will not
     # work. `--proxy-headers` so uvicorn trusts X-Forwarded-*, without which every
     # client IP in audit_log becomes Render's proxy.
+    #
+    # `--loop uvloop --http httptools` are the compiled pieces of uvicorn[standard]
+    # (already pinned in backend/pyproject.toml): measurably less CPU per request on
+    # the 0.1-CPU free instance, which is what keeps /healthz answering in
+    # milliseconds while the replay tick burns the single core next door.
+    # Migrations run here, not in startCommand: Render executes the pre-deploy
+    # command in a temporary container while the previous revision keeps serving,
+    # so a slow cross-region `upgrade head` never holds the port closed (which is
+    # what the proxy turns into 502). The lifespan background migration in
+    # `app/main.py::_migrate_schema` stays as a fallback — it is a one-query
+    # no-op when pre-deploy already migrated, and covers first-ever deploys.
+    preDeployCommand: cd backend && alembic upgrade head
+
     startCommand: >-
       cd backend &&
-      alembic upgrade head &&
       uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1 --proxy-headers
+      --loop uvloop --http httptools --timeout-graceful-shutdown 20
 
     healthCheckPath: /healthz
     autoDeployTrigger: commit
