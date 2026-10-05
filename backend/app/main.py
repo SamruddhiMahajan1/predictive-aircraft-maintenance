@@ -6,6 +6,7 @@ import logging
 import os
 import time
 from contextlib import asynccontextmanager, suppress
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -64,7 +65,7 @@ async def _seed_if_empty(settings: Settings) -> None:
 
 
 def _migrate_schema() -> None:
-    """Bring the database to `head`, with retries. Render-only.
+    """Bring the database to `head`, with retries. Render-only. Never raises.
 
     Gated on the `RENDER` env var that Render injects (`RENDER=true`), so local
     dev, Compose and the test suite keep running migrations explicitly and are
@@ -74,25 +75,55 @@ def _migrate_schema() -> None:
     here, after the port is bound, shrinks the 502 window on every cold start
     and every deploy to the bare interpreter boot.
 
-    Never fatal: a failed migration is logged loudly and serving continues. A
-    crash-looping process serves 502 forever; a running one serves degraded
-    reads until the next deploy.
+    A failed migration is logged loudly and serving continues. A crash-looping
+    process serves 502 forever; a running one serves degraded reads until the
+    next deploy.
+
+    Runs the `alembic` console script in a subprocess — never `from alembic
+    import ...` in-process. The migrations live in `backend/alembic/` with an
+    `__init__.py`, so with CWD=backend that directory shadows the installed
+    alembic package and `alembic.config` does not resolve (the exact
+    `ModuleNotFoundError` that killed a deploy). The console script's sys.path
+    starts at the venv bin dir, so it always finds the real package — the same
+    reason the old `startCommand` form worked for months.
 
     Requires CWD=backend (`alembic.ini` resolves `script_location = alembic`
     relatively) — startCommand's `cd backend` is load-bearing for this too.
     """
-    from alembic.config import Config  # noqa: E402
+    import shutil
+    import subprocess
 
-    from alembic import command  # noqa: E402
+    if not Path("alembic.ini").is_file():
+        log.error(
+            "alembic.ini not found in CWD=%s — skipping migration "
+            "(startCommand `cd backend` is load-bearing)",
+            os.getcwd(),
+        )
+        return
+    exe = shutil.which("alembic")
+    if exe is None:
+        log.error("alembic console script not on PATH — skipping migration")
+        return
 
     for attempt in (1, 2, 3):
         try:
-            command.upgrade(Config("alembic.ini"), "head")
-            log.info("schema at head (migration pass %d)", attempt)
-            return
-        except Exception:  # noqa: BLE001 — retried below, then tolerated
-            log.warning("migration pass %d failed", attempt, exc_info=True)
-            time.sleep(5 * attempt)
+            proc = subprocess.run(
+                [exe, "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("migration pass %d timed out after 180s", attempt)
+        except Exception:  # noqa: BLE001 — spawn failure, retried below
+            log.warning("migration pass %d could not start", attempt, exc_info=True)
+        else:
+            tail = (proc.stderr or proc.stdout or "")[-2000:]
+            if proc.returncode == 0:
+                log.info("schema at head (migration pass %d)", attempt)
+                return
+            log.warning("migration pass %d exited %d: %s", attempt, proc.returncode, tail)
+        time.sleep(5 * attempt)
     log.error("migrations failed after 3 passes — serving without schema upgrade")
 
 
@@ -105,10 +136,20 @@ async def _background_init(app: FastAPI, settings: Settings) -> None:
     it runs: the model serves the deterministic fallback until loaded, the replay
     refuses to start until C-MAPSS is present, and /healthz reports `starting`.
     """
-    try:
-        if os.getenv("RENDER") == "true":
-            await asyncio.to_thread(_migrate_schema)
+    # Each phase is isolated: a failure in one must never abort the rest. A
+    # single shared try block once let a migration import error skip the model
+    # load, the seed and the replay engine in one stroke — the service came up
+    # "successfully" serving an empty fallback fleet with no live stream.
+    problems: list[str] = []
 
+    if os.getenv("RENDER") == "true":
+        try:
+            await asyncio.to_thread(_migrate_schema)
+        except Exception:  # noqa: BLE001 — belt and suspenders; _migrate_schema never raises
+            log.exception("migration crashed; continuing without schema upgrade")
+            problems.append("migration failed")
+
+    try:
         # The two heavy reads — xgboost import + booster load + warmup inference,
         # and the C-MAPSS np.loadtxt parse. Both are CPU/file bound, so they go to
         # threads and run concurrently; the loop stays responsive while they finish.
@@ -121,16 +162,27 @@ async def _background_init(app: FastAPI, settings: Settings) -> None:
             log.info("model loaded: %s (mae=%s)", handle.version, handle.mae)
         else:
             log.warning("running deterministic fallback: %s", (handle.error or "")[:200])
+    except Exception:  # noqa: BLE001 — serve the fallback, not a traceback
+        log.exception("model/C-MAPSS load failed; serving deterministic fallback")
+        problems.append("model load failed")
 
+    try:
         # Seed before the replay engine: the engine walks `Aircraft`, so it has to
         # find the fleet already present rather than racing to populate it.
         await _seed_if_empty(settings)
+    except Exception:  # noqa: BLE001 — a down database must not kill the loop
+        log.exception("boot seed failed")
+        problems.append("seed failed")
+
+    try:
         await start_replay()
-    except Exception:  # noqa: BLE001 — a failed init must not kill the process
-        log.exception("background startup init failed")
-        app.state.startup_error = "startup init failed; serving degraded"
-    finally:
-        app.state.startup_done = True
+    except Exception:  # noqa: BLE001 — polling still works without the live stream
+        log.exception("replay engine failed to start")
+        problems.append("replay failed to start")
+
+    if problems:
+        app.state.startup_error = "; ".join(problems)
+    app.state.startup_done = True
 
 
 @asynccontextmanager
