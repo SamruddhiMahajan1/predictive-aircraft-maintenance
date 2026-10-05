@@ -18,7 +18,7 @@ set -euo pipefail
 
 DEST="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/backend/data/cmapss"
 BASE_URL="https://raw.githubusercontent.com/jasonniebeck/C-MAPSS/master"
-SUBSETS=(FD001 FD002 FD003 FD004)
+SUBSETS=(FD001)
 VERBOSE=1
 
 while [[ $# -gt 0 ]]; do
@@ -49,7 +49,7 @@ for subset in "${SUBSETS[@]}"; do
     url="${BASE_URL}/${file}"
     log "fetching $file"
     if command -v curl >/dev/null 2>&1; then
-      curl -fsSL --retry 3 --retry-delay 2 -o "$target.part" "$url" \
+      curl -fsSL --retry 2 --retry-delay 1 -o "$target.part" "$url" 2>/dev/null \
         && mv "$target.part" "$target" || rm -f "$target.part"
     else
       wget -q -O "$target.part" "$url" && mv "$target.part" "$target" \
