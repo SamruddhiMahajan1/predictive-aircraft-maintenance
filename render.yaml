@@ -78,6 +78,24 @@ services:
       - key: NODE_VERSION
         value: "20.11.1"
 
+      # Threading discipline for a 0.1-CPU / 512 MB instance. Importing xgboost
+      # + numpy costs ~290 MB RSS on its own, so everything after that is fought
+      # in tens of megabytes — and the BLAS/OpenMP runtimes size their thread
+      # pools from the *host* CPU count, spawning a dozen threads that each hold
+      # buffers while serialising on a tenth of a core. Pinning them to one
+      # thread each is both leaner and faster here; it is also what keeps a
+      # second device downloading the 3D scene mid-tick from tipping the process
+      # into an OOM restart (which the proxy serves as 502/503).
+      - key: OMP_NUM_THREADS
+        value: "1"
+      - key: OPENBLAS_NUM_THREADS
+        value: "1"
+      # glibc carves a malloc arena per thread and never fully returns them;
+      # with the replay + request threadpool churning, retained arenas were dead
+      # RSS that only grew. Two arenas is plenty for one worker.
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+
       # `production` is honest here. It previously had to claim
       # `staging` purely to be allowed to run with FDT_DEMO_MODE=true, since the replay
       # engine is what feeds the live twin — a misreport that made the deployment's real

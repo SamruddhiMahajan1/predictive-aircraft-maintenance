@@ -36,6 +36,30 @@ log = logging.getLogger(__name__)
 WEB_MOUNT_PREFIXES = ("assets", "models")
 
 
+class SelectiveGZipMiddleware(GZipMiddleware):
+    """GZip everything except dense binaries Starlette would buffer whole.
+
+    Starlette's responder accumulates the full body in memory before flushing
+    and applies to every content type over `minimum_size` — including the
+    multi-MB `.glb`/`.bin` scenes, which are already entropy-dense (gzip saves
+    ~nothing) and arrive exactly when the instance is most loaded: a cold boot
+    with several slow clients downloading the scene at once. Each of those
+    downloads otherwise holds megabytes in RAM and burns 0.1-CPU seconds
+    re-compressing noise, delaying the event loop — and the health probe — for
+    everyone. JSON and JS/CSS keep their ~70% savings; the scenes stream raw.
+    """
+
+    def __init__(self, app, *, skip_prefixes=("/models",), **kwargs):
+        super().__init__(app, **kwargs)
+        self.skip_prefixes = skip_prefixes
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and scope["path"].startswith(self.skip_prefixes):
+            await self.app(scope, receive, send)
+            return
+        await super().__call__(scope, receive, send)
+
+
 async def _seed_if_empty(settings: Settings) -> None:
     """Seed the fleet on first boot.
 
@@ -298,10 +322,15 @@ def create_app() -> FastAPI:
 
     # On Render there is no nginx in front — uvicorn serves the Vite bundle
     # directly. Without this every JSON response and every JS/CSS asset goes
-    # over the wire uncompressed (~780 KB JS + multi-MB GLBs). Gzip at level 5
-    # is the sweet spot for a 512 MB instance: ~70% smaller responses for
-    # negligible CPU. StaticFiles mounts below go through middleware too.
-    app.add_middleware(GZipMiddleware, minimum_size=500, compresslevel=5)
+    # over the wire uncompressed (~780 KB JS). Gzip at level 5 is the sweet
+    # spot for a 512 MB instance: ~70% smaller responses for negligible CPU.
+    # StaticFiles mounts below go through middleware too, except /models (see
+    # SelectiveGZipMiddleware): the GLB scenes are dense binaries that gain
+    # nothing from a second compression pass. `engine.bin.gz` is already
+    # gzipped and was being pointlessly re-compressed per download.
+    app.add_middleware(
+        SelectiveGZipMiddleware, minimum_size=500, compresslevel=5
+    )
 
     @app.middleware("http")
     async def cache_control(request: Request, call_next):

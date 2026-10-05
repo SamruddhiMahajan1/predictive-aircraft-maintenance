@@ -13,7 +13,7 @@
 //   * `fetchEngineDetail` / `fetchPartDetail`, on demand for whatever is selected.
 
 import { fleet, resolve, PART_CODES } from '../data/fleet.js';
-import { emit, app } from './store.js';
+import { emit, app, setModelStatus } from './store.js';
 import {
   fetchAircraftList,
   fetchAircraftDetail,
@@ -22,6 +22,7 @@ import {
   fetchFleetActions,
   fetchSchedule,
   fetchEngineDetail,
+  fetchHealth,
   fetchPartDetail,
 } from '../lib/api.js';
 import { clamp } from '../lib/math.js';
@@ -244,6 +245,10 @@ export async function refreshEngine(code) {
   e.topSensors = body.top_sensors || [];
   e.componentSensorMap = body.component_sensor_map || {};
   e.modelInfo = body.model || null;
+  // The badge also learns from here: on networks where the WebSocket Upgrade
+  // never completes, `health.updated` frames never arrive and the navbar would
+  // otherwise read "Awaiting model" forever next to live REST data.
+  if (body.model) setModelStatus(body.model);
   if (body.components) {
     e.components = { ...body.components };
   }
@@ -326,6 +331,16 @@ export function startServerState() {
       if (await refreshFleet()) {
         setApiReachable(true);
         emit();
+        // While the badge is still awaiting its first provenance signal, ask
+        // /healthz directly — one cheap request per poll, only until resolved.
+        // Fired without awaiting so a slow health check never delays the poll.
+        if (!app.model.version) {
+          fetchHealth().then((h) => {
+            if (h && h.model) {
+              setModelStatus(h.model);
+            }
+          }).catch(() => {});
+        }
       } else if (apiReachable) {
         setApiReachable(false);
         emit();

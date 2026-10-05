@@ -124,6 +124,18 @@ def test_3d_assets_are_served(web_client):
     assert response.content.startswith(b"\x00glTF")
 
 
+def test_3d_assets_skip_gzip_but_json_keeps_it(web_client):
+    """GLBs are dense binaries: gzipping them buffers megabytes per download for
+    ~no byte savings, on an instance that OOMs in tens of megabytes."""
+    scene = web_client.get("/models/rafale.glb", headers={"Accept-Encoding": "gzip"})
+    assert scene.status_code == 200
+    assert scene.headers.get("content-encoding") != "gzip"
+    api = web_client.get("/api/v1/fleet/summary", headers={"Accept-Encoding": "gzip"})
+    assert api.status_code == 200
+    assert len(api.content) > 500
+    assert api.headers.get("content-encoding") == "gzip"
+
+
 # ── the API still wins ─────────────────────────────────────────────────────────
 @pytest.mark.parametrize(
     "path",
