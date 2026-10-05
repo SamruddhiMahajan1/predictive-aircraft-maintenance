@@ -87,6 +87,14 @@ class Settings(BaseSettings):
     # build instead of silently degrading the replay engine to an empty dataset.
     data_dir: Path = Path("data")
 
+    # C-MAPSS subsets to hold in memory. The replay only ever walks `replay_subset`
+    # (FD001 by default, ~3.4 MB), but `cmapss.load()` used to parse all four
+    # train files (~22 MB on disk → hundreds of MB as per-row dicts), which alone
+    # can OOM a 512 MB free-tier instance a few minutes after boot — the classic
+    # "app goes down every few minutes" on Render. Keep this false unless you
+    # genuinely switch replay subsets at runtime without a restart.
+    cmapss_preload_all: bool = False
+
     # The built Vite bundle, served by this process when there is no nginx in front of
     # it (see the `_mount_frontend` note in app/main.py). Resolved relative to the
     # process CWD, exactly like `data_dir` above, so on a single-service deployment it

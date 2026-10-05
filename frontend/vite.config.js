@@ -7,6 +7,7 @@ export default defineConfig(({ mode }) => {
   // (docker/frontend/nginx.conf), which is why src/lib/api.js needs no env var.
   const env = loadEnv(mode, process.cwd(), 'VITE_');
   const target = env.VITE_API_PROXY_TARGET || 'http://127.0.0.1:8000';
+  const isProd = mode === 'production';
 
   return {
     base: './',
@@ -25,11 +26,23 @@ export default defineConfig(({ mode }) => {
       },
     },
     build: {
+      target: 'es2020',
+      cssCodeSplit: true,
+      cssMinify: isProd,
+      sourcemap: false,
+      reportCompressedSize: false,
+      assetsInlineLimit: 4096,
       chunkSizeWarningLimit: 900,
-      sourcemap: mode !== 'production',
       rollupOptions: {
         output: {
-          manualChunks: { three: ['three'] },
+          // three (~512 KB) and react (~140 KB) change far less often than app
+          // code. Splitting them into stable vendor chunks means repeat visitors
+          // re-download only the app chunk after a deploy — the vendors come
+          // from the browser cache (backend serves them immutable for a year).
+          manualChunks: {
+            three: ['three'],
+            vendor: ['react', 'react-dom'],
+          },
         },
       },
     },

@@ -25,7 +25,7 @@ services:
     region: singapore
 
     buildCommand: >-
-      npm --prefix frontend ci &&
+      npm --prefix frontend ci --no-audit --no-fund &&
       npm --prefix frontend run build &&
       pip install ./backend &&
       (bash scripts/fetch-cmapss.sh --subset FD001 --quiet || true)
@@ -93,6 +93,12 @@ services:
       - key: FDT_ML_DATASET
         value: FD001
       - key: FDT_ML_FALLBACK
+        value: "false"
+
+      # Only the replayed C-MAPSS subset is held in memory. Loading all four
+      # train files ballooned past hundreds of MB as per-row dicts and OOMed
+      # the 512 MB free instance minutes after boot — the "down every 5 min".
+      - key: FDT_CMAPSS_PRELOAD_ALL
         value: "false"
 
       # Aiven free caps max_connections at 20. The defaults (5 + 10 overflow) could

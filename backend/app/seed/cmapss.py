@@ -63,7 +63,14 @@ class CMapss:
     def load(self, settings: Settings | None = None) -> CMapss:
         s = settings or get_settings()
         self.replay = s.replay_subset
-        for subset in KNOWN_SUBSETS:
+        # Only the replayed subset is needed at runtime. Parsing all four train
+        # files (~22 MB → hundreds of MB as per-row dicts) OOMs small instances
+        # minutes after boot. Stage the rest only when explicitly asked.
+        preload_all = bool(getattr(s, "cmapss_preload_all", False))
+        wanted = list(KNOWN_SUBSETS) if preload_all else [self.replay]
+        for subset in wanted:
+            if subset is None:
+                continue
             path = s.cmapss_file(subset, "train")
             if not path.exists():
                 continue

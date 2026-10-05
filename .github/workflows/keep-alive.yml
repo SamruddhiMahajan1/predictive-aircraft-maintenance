@@ -1,0 +1,37 @@
+name: keep-alive
+
+# Render free-tier services sleep after ~15 min without inbound traffic, and the
+# next real visitor pays a 30-90s cold boot. This pings /healthz every 5 min to
+# keep one instance warm. It never deploys, never touches the database beyond
+# the health check's own `SELECT 1`, and never fails the repo on a single miss
+# (a cold boot can exceed the curl timeout — the next run retries).
+#
+# Setup: Settings → Secrets → Actions → New secret `FLEET_URL` with the public
+# Render URL (e.g. https://fleet-digital-twin.onrender.com). Falls back to that
+# URL when the secret is absent so forks still exercise the workflow harmlessly.
+# To use a third-party pinger instead (UptimeRobot, Better Stack, cron-job.org),
+# point it at `<FLEET_URL>/healthz` with a 5-minute interval.
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: keep-alive
+  cancel-in-progress: true
+
+jobs:
+  ping:
+    name: Ping production /healthz
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Warm the service
+        run: bash scripts/keep-alive.sh "${{ secrets.FLEET_URL || 'https://fleet-digital-twin.onrender.com' }}"
