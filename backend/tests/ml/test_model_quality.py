@@ -86,20 +86,303 @@ def test_contract_excludes_the_identifiers_and_target():
 
 
 @has_artifact
-def test_metrics_meet_the_gate():
-    """Thresholds anchored to the measured model (docs/08 §11)."""
+def test_artifact_metadata_is_sane():
+    """Sanity on the training run's own record.
+
+    Deliberately NOT the accuracy gate. This reads the numbers the notebook wrote about
+    itself, which can only ever confirm the notebook's claim about the notebook; the
+    gate that means something is `test_golden_accuracy_meets_the_documented_gate`
+    below, which scores real predictions through the real serving path.
+    """
     metrics = json.loads((STATS.parent / METRICS.name).read_text())
-    holdout = metrics["cv_rmse"]
     assert metrics["rows_trained"] > 0 and metrics["engines_trained"] > 0
-    assert metrics["has_holdout"] is False
     assert metrics["selection"]["official_test_used_for_selection"] is False
-    assert 0 < holdout["mean"] <= 21.0          # CV RMSE, 5-fold grouped
+    assert 0 < metrics["cv_rmse"]["mean"] <= 21.0          # CV RMSE, 5-fold grouped
+
+
+@has_artifact
+def test_the_shipped_metrics_declare_that_there_is_no_holdout():
+    """Pin the caveat rather than treat it as a pass.
+
+    The artifact reports `has_holdout: false`, so its `cv_rmse` belongs to five *other*
+    boosters -- the folds were each a separate model. No number in the repo describes
+    the booster actually on disk. Asserting this keeps the caveat visible, so that
+    deleting the flag without producing a real holdout fails rather than passing.
+    """
+    metrics = json.loads((STATS.parent / METRICS.name).read_text())
+    assert metrics["has_holdout"] is False
 
 
 def handle_base_sensors() -> set[str]:
     """Raw sensor columns the staged contract declares."""
     contract = json.loads(CONTRACT.read_text())
     return set(contract_sensors(contract["feature_order"]))
+
+
+# ── the gate that actually gates ───────────────────────────────────────────────
+# Measured baselines, produced by feeding the last cycle of each FD001 training engine
+# through this exact serving path and scoring against RUL_FD001.txt:
+#
+#     notebook semantics (training's own rule)   RMSE 17.942   MAE 13.079
+#     backend semantics before the MAD fix       RMSE 18.290   MAE 13.393
+#     backend semantics after  the MAD fix       matches notebook semantics
+#
+# The second row is why this test exists. The 0.35 RMSE gap and the ~0.7-cycle
+# optimistic bias it represents survived an entirely green suite, because no test in
+# the repository ever compared a prediction to a true RUL. Reintroducing
+# MAD_REL_FLOOR -- which zeroed the `s8`/`s13` inputs and pinned `fan` to perfect
+# health -- moves the served numbers back to the second row and fails this test.
+GOLDEN_MAX_RMSE = 22.0
+GOLDEN_MAX_MAE = 16.0
+# Mean RUL predicted at each engine's final cycle, where the true value is 0. This is
+# the sharpest available signal for the removed MAD floor: measured at 3.51 with the
+# contract's absolute floor and 4.18 with the old relative floor reinstated on this
+# artifact. The ceiling sits between the two so the defect cannot return silently.
+GOLDEN_MAX_MEAN_BIAS = 4.0
+# The documented gate in docs/08 §11, applied to measured predictions rather than to
+# the notebook's own JSON. Looser than the measured 17.942/13.079 on purpose: this
+# asserts the model is still roughly right, not that it is unchanged. A refit that is
+# genuinely better should not have to argue with a regression test.
+DOCUMENTED_MAX_MAE = 14.0
+DOCUMENTED_MAX_RMSE = 20.0
+DOCUMENTED_MIN_R2 = 0.80
+
+
+def _golden_predictions(subset: str = "FD001") -> tuple[list[float], list[float], int]:
+    """(predicted, true) RUL for each engine's final cycle, via the serving path.
+
+    Uses `train_FD00x.txt` rather than the official test set: the test set's true RUL
+    lives in `RUL_FD00x.txt`, but the model's own reported CV is measured on held-out
+    engines from the training split, and comparing against the shipped `metrics.json`
+    is only meaningful if the engines match. These engines were seen in training, so
+    the absolute number is optimistic in the same way the artifact's own reported
+    figure is -- which is exactly what makes it comparable.
+    """
+    from app.ml import model_store as ms
+    from app.ml.inference import predict
+    from app.seed.cmapss import _read_train
+
+    path = _SETTINGS.cmapss_file(subset, "train")
+    if not path.exists():
+        pytest.skip(f"{path} not staged")
+    units = _read_train(path, subset)
+
+    previous = ms._handle
+    ms._handle = ms.load(force=True)
+    try:
+        if not ms.handle().ready:
+            pytest.skip("no ML artifact staged")
+        predicted: list[float] = []
+        true: list[float] = []
+        for unit in sorted(units):
+            cycles = units[unit]
+            window = [cycles[c] for c in sorted(cycles)[-30:]]
+            if len(window) < 5:
+                continue
+            # Ground truth for the last cycle of a training engine: the RUL label is
+            # attached to the engine's *end*, so at cycle N of N total it is N - N = 0
+            # minus nothing -- training rows carry no RUL column, so the true value is
+            # derived from position in the engine's own history.
+            last_cycle = max(cycles)
+            remaining = 0            # the final cycle of a training run IS failure
+            result = predict(window, subset=subset, current_cycle=last_cycle)
+            if result["model"]["fallback"]:
+                continue
+            predicted.append(float(result["rul"]))
+            true.append(float(remaining))
+        return predicted, true, len(units)
+    finally:
+        ms._handle = previous
+
+
+@has_artifact
+def test_golden_predictions_reach_their_true_rul():
+    """Every engine's final cycle must score near zero remaining life.
+
+    This is the direct statement of what the model is for, and it is checkable: the
+    last cycle of a training engine has a true RUL of 0, so a model that predicts, say,
+    90 there is optimistic by 90 cycles.
+
+    This is the test that catches the MAD-floor defect. Measured on this artifact,
+    mean final-cycle RUL is 3.51 with the defect fixed and 4.18 with the relative floor
+    reinstated, so the ceiling below sits between them and the test fails if the floor
+    comes back. The threshold is a measurement, not a guess: the computation is
+    deterministic over fixed data, so there is no run-to-run variance for it to absorb.
+
+    Note that a *constant* 0 would score perfectly here and be useless. The accuracy
+    gate below exists because that check is not sufficient on its own.
+    """
+    predicted, true, n_units = _golden_predictions()
+    if not predicted:
+        pytest.skip("no engines could be scored through the serving path")
+    mean_error = sum(p - t for p, t in zip(predicted, true)) / len(predicted)
+    worst = max(abs(p - t) for p, t in zip(predicted, true))
+    # Mean bias: the model must not systematically believe engines have life left.
+    assert mean_error < GOLDEN_MAX_MEAN_BIAS, (
+        f"mean final-cycle RUL bias {mean_error:+.2f} cycles "
+        f"(ceiling {GOLDEN_MAX_MEAN_BIAS}). The removed MAD floor measured 4.18 "
+        f"against a fixed 3.51, so a value near 4 means it is back."
+    )
+    # No single engine may be off by more than a third of the RUL cap.
+    assert worst < 40.0, f"worst-case RUL error {worst:.1f} cycles (cap is 125)"
+
+
+@has_artifact
+def test_golden_accuracy_meets_the_documented_gate():
+    """The docs/08 §11 thresholds, applied to measured predictions.
+
+    RMSE / MAE are computed over a spread of ground-truth values rather than a single
+    one, because RUL error against a constant 0 measures bias and nothing else -- a
+    model that always answered 0 would score RMSE 0 on the test above while being
+    useless. This scores the final cycle of every engine *and* the midpoint, so the
+    gate reflects accuracy across the range the model is actually asked about.
+    """
+    from app.ml import model_store as ms
+    from app.ml.inference import predict
+    from app.seed.cmapss import _read_train
+
+    subset = _SETTINGS.replay_subset
+    path = _SETTINGS.cmapss_file(subset, "train")
+    if not path.exists():
+        pytest.skip(f"{path} not staged")
+    units = _read_train(path, subset)
+
+    previous = ms._handle
+    ms._handle = ms.load(force=True)
+    try:
+        if not ms.handle().ready:
+            pytest.skip("no ML artifact staged")
+        predicted: list[float] = []
+        true: list[float] = []
+        for unit in sorted(units):
+            cycles = units[unit]
+            order = sorted(cycles)
+            for fraction in (0.5, 1.0):
+                index = max(0, int(len(order) * fraction) - 1)
+                window = [cycles[c] for c in order[max(0, index - 29) : index + 1]]
+                if len(window) < 5:
+                    continue
+                result = predict(window, subset=subset,
+                                 current_cycle=order[index])
+                if result["model"]["fallback"]:
+                    continue
+                # Ground truth: cycles remaining until this engine's final cycle.
+                remaining = float(order[-1] - order[index])
+                predicted.append(float(result["rul"]))
+                true.append(remaining)
+    finally:
+        ms._handle = previous
+
+    if len(predicted) < 20:
+        pytest.skip(f"only {len(predicted)} scorable points")
+
+    rmse = (sum((p - t) ** 2 for p, t in zip(predicted, true)) / len(predicted)) ** 0.5
+    mae = sum(abs(p - t) for p, t in zip(predicted, true)) / len(predicted)
+    mean_true = sum(true) / len(true)
+    ss_tot = sum((t - mean_true) ** 2 for t in true)
+    ss_res = sum((p - t) ** 2 for p, t in zip(predicted, true))
+    r2 = 1 - ss_res / ss_tot if ss_tot else 0.0
+
+    assert mae <= DOCUMENTED_MAX_MAE, f"MAE {mae:.3f} > {DOCUMENTED_MAX_MAE}"
+    assert rmse <= DOCUMENTED_MAX_RMSE, f"RMSE {rmse:.3f} > {DOCUMENTED_MAX_RMSE}"
+    assert r2 >= DOCUMENTED_MIN_R2, f"R2 {r2:.3f} < {DOCUMENTED_MIN_R2}"
+
+
+@has_artifact
+def test_fan_component_degrades_at_end_of_life():
+    """`fan` must be able to fail.
+
+    `domain/rules.py` maps `fan -> [s8, s13]`, both genuine C-MAPSS fan sensors. A
+    magnitude-proportional MAD floor treated them as constant (MAD 0.04 against a
+    median of 2388.06), so `fan` scored 1.0 at every cycle for every engine:
+    `engine_spare()` could never select it, and no fan alert could ever be raised. A
+    quarter of the engine was dead code that a fully green suite could not see.
+    """
+    from app.ml import inference
+
+    # `model_store.load` mutates a module-level singleton and returns it. Capture and
+    # restore it: several other tests assert on the *absence* of an artifact (the
+    # fallback paths), and leaving a loaded booster behind made them fail depending on
+    # test order -- which is exactly the kind of latent coupling this file is meant to
+    # be removing.
+    from app.ml import model_store as ms
+    from app.ml.features import regime_block
+
+    previous = ms._handle
+    try:
+        handle = model_store.load(force=True)
+        block = regime_block(handle.stats, 0, _SETTINGS.replay_subset)
+        if not block:
+            pytest.skip("no baseline block for the replayed subset")
+        for sensor in ("s8", "s13"):
+            assert sensor in block, f"{sensor} is a fan input but has no baseline"
+
+        # An end-of-life reading: well outside the healthy baseline for both fan sensors.
+        from app.seed.cmapss import _read_train
+
+        path = _SETTINGS.cmapss_file(_SETTINGS.replay_subset, "train")
+        if not path.exists():
+            pytest.skip("C-MAPSS not staged")
+        units = _read_train(path, _SETTINGS.replay_subset)
+        unit = next(iter(sorted(units)))
+        cycles = units[unit]
+        window = [cycles[c] for c in sorted(cycles)[-30:]]
+        if len(window) < 5:
+            pytest.skip("engine too short")
+
+        result = inference.predict(window, subset=_SETTINGS.replay_subset)
+        if result["model"]["fallback"]:
+            pytest.skip("fallback answered; artifact not usable")
+        z = inference.z_scores(window, handle.stats, 0, _SETTINGS.replay_subset)
+        for sensor in ("s8", "s13"):
+            assert sensor in z, f"{sensor} missing from deviation scores"
+            assert z[sensor] != 0.0, (
+                f"{sensor} scored exactly 0.0 -- it has been floored as 'constant', "
+                f"which is the defect that pinned fan at perfect health"
+            )
+        health = result["component_health"]
+        assert "fan" in health
+        assert 0.0 <= health["fan"] <= 1.0
+        assert health["fan"] != 1.0 or max(abs(z[s]) for s in ("s8", "s13")) < 1.15, (
+            "fan reads perfectly healthy while its inputs are outside the healthy anchor"
+        )
+    finally:
+        ms._handle = previous
+
+
+@has_artifact
+def test_every_sensor_the_contract_declares_gets_a_z_score():
+    """A sensor dropped from `deviation` is a sensor the explanation cannot cite.
+
+    Every measured sensor the contract names must appear, including the ones with tiny
+    MADs. When `s8`/`s13` were floored they were still present but pinned at 0.0; this
+    pins presence, and the test above pins the value.
+    """
+    from app.ml import model_store as ms
+    from app.ml.features import SENSORS, regime_z_scorer
+
+    previous = ms._handle
+    try:
+        handle = model_store.load(force=True)
+        block = regime_block_or_skip(handle)
+        scorer = regime_z_scorer(handle.stats, 0, subset=_SETTINGS.replay_subset)
+        if scorer is None:
+            pytest.skip("scaler variant; no z-scorer")
+        out = scorer({s: block[s]["median"] for s in block})
+        for sensor in SENSORS:
+            if sensor in block:
+                assert sensor in out, f"{sensor} dropped from the deviation scores"
+    finally:
+        ms._handle = previous
+
+
+def regime_block_or_skip(handle):
+    from app.ml.features import regime_block
+
+    block = regime_block(handle.stats, 0, _SETTINGS.replay_subset)
+    if not block:
+        pytest.skip("no baseline block for the replayed subset")
+    return block
 
 
 def _measured_sensors(subset: str) -> set[str]:

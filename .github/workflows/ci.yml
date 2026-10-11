@@ -70,8 +70,8 @@ jobs:
       - name: ruff
         run: ruff check app tests scripts
 
-      - name: ruff (format drift is reported, not enforced)
-        run: ruff format --check app tests scripts || true
+      - name: ruff format (enforced)
+        run: ruff format --check app tests scripts
 
       - name: mypy --strict (core, domain and ml must be fully typed)
         run: mypy app/core app/domain app/ml
@@ -118,12 +118,30 @@ jobs:
       - name: Install
         run: npm ci
 
-      # The console has no test coverage beyond the build; the API suite is the gate.
-      - name: Test (node:test, no dependencies)
-        run: npm test
+      - name: ESLint + React Hooks
+        run: npx eslint src --ext .js,.jsx
+
+      - name: Test (node:test)
+        run: node --test src/**/*.test.js
+
+      - name: npm audit (fail on high/critical)
+        run: npm audit --audit-level=high
 
       - name: Build
         run: npm run build
+
+      - name: Bundle budget (dist < 3.5 MB gzipped)
+        run: |
+          MAX_BYTES=3670016  # 3.5 MB
+          for f in dist/**/*.js dist/**/*.css; do
+            if [ -f "$f" ]; then
+              size=$(gzip -c "$f" | wc -c)
+              if [ "$size" -gt "$MAX_BYTES" ]; then
+                echo "::error::$f gzipped size ${size}B > ${MAX_BYTES}B"
+                exit 1
+              fi
+            fi
+          done
 
       - name: Assert the 3D assets were copied into the bundle
         # A missing .glb is invisible to `vite build` — it only fails at runtime, in the
@@ -172,6 +190,39 @@ jobs:
           tags: fdt-web:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Container scan (trivy) — fail on CRITICAL
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: fdt-api:ci
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+
+      - name: Container scan (trivy) — fail on CRITICAL
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: fdt-web:ci
+          format: table
+          exit-code: 1
+          severity: CRITICAL
+
+      - name: Image size gate (backend < 500 MB, frontend < 200 MB)
+        run: |
+          MAX_API=524288000  # 500 MB
+          MAX_WEB=209715200  # 200 MB
+          api=$(docker image inspect fdt-api:ci --format '{{.Size}}')
+          web=$(docker image inspect fdt-web:ci --format '{{.Size}}')
+          echo "Backend image: $api bytes"
+          echo "Frontend image: $web bytes"
+          if [ "$api" -gt "$MAX_API" ]; then
+            echo "::error::Backend image ${api}B > ${MAX_API}B"
+            exit 1
+          fi
+          if [ "$web" -gt "$MAX_WEB" ]; then
+            echo "::error::Frontend image ${web}B > ${MAX_WEB}B"
+            exit 1
+          fi
 
       - name: nginx configuration is valid
         # FDT_API_HOST=127.0.0.1 so the upstream resolves without a Compose network.

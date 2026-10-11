@@ -18,7 +18,7 @@ from .api.v1.router import api_router
 from .core.config import Settings, get_settings
 from .core.errors import DomainError
 from .core.logging import configure_logging, new_request_id, request_id_var
-from .db.session import get_sessionmaker
+from .db.session import bound_threadpool, get_sessionmaker
 from .ml import model_store
 from .realtime.bus import bus
 from .realtime.replay import start_replay, stop_replay
@@ -223,6 +223,11 @@ async def lifespan(app: FastAPI):
     app.state.startup_error = None
 
     bus.bind_loop()
+
+    # Match anyio's threadpool to the connection pool. Done here rather than in
+    # `get_engine` because anyio's limiter needs a running event loop, and `get_engine`
+    # is also called from sync contexts (tests, seed scripts) where it raises.
+    bound_threadpool(settings.db_pool_size + settings.db_max_overflow)
 
     # Per-app, not a module singleton: the pruner's task belongs to this app's event
     # loop, so an instance shared across every app built in the process cannot be

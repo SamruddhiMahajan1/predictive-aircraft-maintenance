@@ -4,7 +4,10 @@
 .github
 frontend
 docs
-ml
+# `ml/` is NOT ignored: `rul.contract` is imported by app/ml/features.py and is built
+# into the venv by docker/backend/Dockerfile. Its bulky, regenerable parts are.
+ml/runs
+ml/notebooks
 scripts
 data
 demo

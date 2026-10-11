@@ -256,6 +256,10 @@ class ModelHandle:
             "dataset": self.dataset,
             "mae": self.mae,
             "fallback": not self.ready,
+            # Whether the booster itself has been exercised since load. `warm=True`
+            # now means the booster answered a warmup, not merely that a call returned
+            # -- predict() degrades instead of raising, so the two were not the same.
+            "warm": self.warm,
             **({"error": self.error} if self.error else {}),
         }
 
@@ -357,20 +361,39 @@ def reload(settings: Settings | None = None) -> ModelHandle:
     return h
 
 
-def warmup(h: ModelHandle | None = None) -> None:
-    """Run one inference so the first real request is not the slow one."""
+def warmup(h: ModelHandle | None = None) -> bool:
+    """Run one inference so the first real request is not the slow one.
+
+    Returns True only if the BOOSTER answered. `predict()` never raises -- by design,
+    it degrades instead -- so the previous version set `h.warm = True` whenever the call
+    returned at all, including when the return was the deterministic fallback. The
+    model then reported itself warm while nothing had ever been exercised through it,
+    which is the one claim the `warm` flag exists to make trustworthy.
+
+    The window is built with empty sensors deliberately: every contract sensor is
+    filled from `missing_sensor_defaults` and scored, so the booster does real work on
+    a positional matrix of the right width without needing fixture data.
+    """
     from .inference import predict
 
     h = h or handle()
     if not h.ready:
-        return
+        return False
     try:
-        predict([{"cycle": 1 + i, "settings": {"setting_1": 0.0, "setting_2": 0.0,
-                                               "setting_3": 100.0},
-                  "sensors": {}} for i in range(30)])
-        h.warm = True
+        result = predict([{"cycle": 1 + i, "settings": {"setting_1": 0.0, "setting_2": 0.0,
+                                                       "setting_3": 100.0},
+                           "sensors": {}} for i in range(30)])
     except Exception as exc:  # noqa: BLE001
         log.warning("warmup failed: %s", exc)
+        return False
+    used_model = not result.get("model", {}).get("fallback", True)
+    if not used_model:
+        log.warning(
+            "warmup was answered by the fallback (%s), not the booster; reporting "
+            "warm=False", result.get("model", {}).get("reason", "no reason given"),
+        )
+    h.warm = used_model
+    return used_model
 
 
 def _warn_on_split_artifact_set(settings: Settings) -> None:

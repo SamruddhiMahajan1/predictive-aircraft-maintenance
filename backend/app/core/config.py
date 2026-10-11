@@ -22,15 +22,28 @@ class Settings(BaseSettings):
     # storage
     database_url: str = "postgresql+psycopg://fdt:fdt@localhost:5432/fdt"
     db_echo: bool = False
-    # Sized for a free managed database (Aiven free caps max_connections at 20):
-    # 5 steady + 5 burst = 10, leaving headroom for a pre-deploy migration and a
-    # seed running alongside the live pool. The 3+2 this used to default to on
-    # Render starved under two concurrent clients — every request holds its
-    # session for its full (slow, cross-region) duration, so 5 slots wedged and
-    # even the WebSocket handshake's one COUNT query timed out after 30 s,
-    # killing the live stream exactly when a second device joined.
+    # Sized for a free managed database (Aiven free caps max_connections at 20).
+    # 5 steady + 10 burst = 15, leaving headroom for a pre-deploy migration and a seed
+    # running alongside the live pool. The 3+2 this used to default to on Render starved
+    # under two concurrent clients; the 5+5 that replaced it still produced HTTP 500 at
+    # 20 concurrent clients on the lightest read endpoint, because the replay engine
+    # holds ~2 connections permanently (its ticks are serialised) and the retention
+    # pass takes a third for the duration of its DELETE.
     db_pool_size: int = 5
-    db_max_overflow: int = 5
+    db_max_overflow: int = 10
+
+    # How long a request waits for a pooled connection before giving up. SQLAlchemy's
+    # default is 30 s, which turned pool exhaustion into an HTTP 500 that took 30
+    # seconds to appear: the client had long since decided the request was dead, and
+    # the connection it was waiting for is released back to the pool moments later.
+    # Five seconds fails fast enough to be honest about the pool being too small,
+    # while still absorbing a genuine burst.
+    db_pool_timeout: float = 5.0
+    # Recycle connections before an intermediary can drop an idle one. Most managed
+    # providers close idle connections at 5-10 minutes; without this the first
+    # request after an idle period can fail on a socket that is closed underneath the
+    # pool and only appears correct again on retry.
+    db_pool_recycle_seconds: int = 300
 
     # http
     # NoDecode: a comma-separated env string must not be JSON-parsed first

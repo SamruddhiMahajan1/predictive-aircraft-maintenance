@@ -15,6 +15,7 @@ VENV          ?= backend/.venv
 BIN           := $(VENV)/bin
 
 .PHONY: help help-local up down restart logs ps rebuild migrate seed fresh setup fetch-data \
+        fetch-data-all \
         dev-backend dev-frontend lint typecheck test test-unit test-web build-api db-test db-test-down \
         fetch-model \
         db-dump db-restore clean distclean
@@ -65,8 +66,11 @@ logs: ## Tail all service logs (make logs api=web to filter)
 
 ## ── data ─────────────────────────────────────────────────────────────────────
 
-fetch-data: ## Download the NASA C-MAPSS telemetry into backend/data/cmapss
+fetch-data: ## Download NASA C-MAPSS FD001 (the only subset the app replays) into backend/data/cmapss
 	@scripts/fetch-cmapss.sh
+
+fetch-data-all: ## Download all four C-MAPSS subsets (FD001-FD004, ~43 MB) for training
+	@scripts/fetch-cmapss.sh --subset-all
 
 fetch-model: ## Download the trained boosters into backend/data/ml/$(FDT_ML_VARIANT)
 	@$(COMPOSE) --profile bootstrap run --rm model-fetch

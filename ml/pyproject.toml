@@ -1,0 +1,59 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rul"
+version = "0.1.0"
+description = "Remaining-useful-life model, and the feature contract training and serving share"
+requires-python = ">=3.11"
+# Runtime is what the BACKEND needs to import rul.contract while serving. The contract
+# itself is pure standard library; these are here because the package ships the model
+# loader alongside it and both are already installed by the backend.
+dependencies = [
+  "numpy>=1.26",
+  "xgboost>=2.1",
+]
+
+[project.optional-dependencies]
+# Training and evaluation only. The backend never pulls this, which is what keeps
+# scikit-learn and matplotlib out of the production image.
+train = [
+  "scikit-learn>=1.5",
+  "matplotlib>=3.9",
+]
+
+[tool.setuptools]
+# Shipped as a normal directory rather than a zip, so `py.typed` and the `.py` sources
+# are both readable by mypy and by anyone reading the install in production.
+zip-safe = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["rul*"]
+
+[tool.setuptools.package-data]
+# Declares the package as typed. Without it mypy treats everything imported from `rul`
+# as `Any`, which silently disables type checking of the backend's adapter module and
+# makes `class X(ContractError)` an error rather than a valid subclass.
+rul = ["py.typed"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "C4"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+# The contract is the part the backend imports at request time, so it holds to the same
+# standard as backend/app/domain -- which is the same standard.
+strict = true
+files = ["src/rul/contract"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+filterwarnings = ["ignore::DeprecationWarning"]

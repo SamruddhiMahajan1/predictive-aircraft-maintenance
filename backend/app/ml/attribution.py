@@ -5,9 +5,8 @@ from typing import Any
 
 from ..domain.rules import COMPONENT_SENSOR_MAP
 from . import model_store
-from .features import MAD_REL_FLOOR, SENSORS, regime_block
+from .features import SENSORS, regime_block, robust_z
 
-EPS = 1e-6
 GAIN_WEIGHT = 0.6
 Z_WEIGHT = 0.4
 
@@ -24,43 +23,39 @@ def z_scores(
 ) -> dict[str, float]:
     """Robust z against the healthy baseline (median/MAD over the first 20 cycles).
 
-    This MUST mirror `features.regime_z_scorer`, because both describe the same
-    quantity for the same window: the model is fed z-scores, and the deviation
-    reported back is supposed to explain that prediction. When the two disagreed:
+    This MUST mirror the contract's z-scorer, because both describe the same quantity
+    for the same window: the model is fed z-scores, and the deviation reported back is
+    supposed to explain that prediction. It used to re-implement the rule locally, and
+    the two copies drifted:
 
-      * s6 was imputed for the feature matrix (build_window -> impute_s6) but read
-        raw here, so a request that omits s6 -- which the API spec's 14-sensor payload
+      * s6 was imputed for the feature matrix (build_matrix -> impute_s6) but read raw
+        here, so a request that omits s6 -- which the API spec's 14-sensor payload
         does -- silently lost s6 from `deviation` even though s6 is one of the 29
         columns the model actually consumes;
-      * the MAD floor was missing here but present there, so a sensor whose baseline
-        MAD rounds to 0.0 (s6 stores mad=0.0) divided by 1e-6 and reported |z| in the
-        thousands, pinning its deviation at the 1.0 clip.
+      * the MAD floor differed, so `s8`/`s13` were floored to z=0.0 in the feature
+        matrix while this function divided by their true MAD of 0.04. The prediction
+        and its explanation disagreed, which is worse than not explaining it at all.
 
-    Both made the explanation disagree with the prediction, which is worse than not
-    explaining it at all.
+    Both now call `robust_z` from `rul.contract`, so there is one rule and no
+    possibility of a second opinion.
     """
     # regime_block knows both artifact layouts (regime_<n> and baselines[<n>]).
     # Reading the keys directly here once made z empty for every Phase 2 artifact,
-    # which surfaced as component health of 1.0 everywhere — healthy, and wrong.
+    # which surfaced as component health of 1.0 everywhere -- healthy, and wrong.
     baseline = regime_block(stats, regime, subset)
     if not baseline:
         return {}
     latest = window[-1]
     sensors = dict(latest.get("sensors") or {})
     if sensors.get("s6") is None and s6_median is not None:
-        sensors["s6"] = s6_median      # same imputation build_window applies
+        sensors["s6"] = s6_median      # same imputation build_matrix applies
     out: dict[str, float] = {}
     for sensor in SENSORS:
         stat = baseline.get(sensor)
         value = sensors.get(sensor)
         if not stat or value is None:
             continue          # a missing sensor is skipped, not a KeyError
-        median = float(stat["median"])
-        mad = float(stat.get("mad", EPS))
-        if mad <= max(abs(median) * MAD_REL_FLOOR, EPS):
-            out[sensor] = 0.0
-            continue
-        out[sensor] = (float(value) - median) / mad
+        out[sensor] = robust_z(value, float(stat["median"]), float(stat.get("mad", 0.0)))
     return out
 
 

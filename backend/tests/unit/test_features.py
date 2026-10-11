@@ -148,13 +148,28 @@ def test_missing_s6_is_imputed_and_flagged():
     for r in rows:
         r["sensors"].pop("s6")
     matrix, imputed = build_window(rows, s6_median=S6_MEDIAN)
-    assert imputed is True
+    assert "s6" in imputed
     assert matrix[0][FEATURE_ORDER.index("s6")] == pytest.approx(S6_MEDIAN)
 
 
 def test_present_s6_is_not_flagged():
     _, imputed = build_window([row(c) for c in range(1, 7)], s6_median=S6_MEDIAN)
-    assert imputed is False
+    assert "s6" not in imputed
+
+
+def test_imputation_names_the_sensors_that_were_filled():
+    """It is a per-sensor set, not a bool.
+
+    A bool was `True` on essentially every real request -- s6 is absent from the API
+    spec's 14-sensor payload, and s10/s16 are constant in FD001 -- so it could never
+    distinguish "the caller omitted sensor_6, which costs accuracy" from "we filled in
+    two sensors this subset never measures". Both are now nameable.
+    """
+    rows = [row(c) for c in range(1, 7)]
+    for r in rows:
+        r["sensors"].pop("s6")
+    _, imputed = build_window(rows, s6_median=S6_MEDIAN)
+    assert imputed == {"s6"}
 
 
 # ── preprocessing variants ───────────────────────────────────────────────────
@@ -286,7 +301,7 @@ def test_a_sensor_absent_from_telemetry_is_filled_not_dropped():
     window = [{**row(c)} for c in range(1, 31)]
     matrix, imputed = build_window(window, s6_median=S6_MEDIAN, feature_order=order,
                                    missing_sensor_values={"s10": 1.08})
-    assert imputed is True
+    assert "s10" in imputed
     assert len(matrix[0]) == len(order) == 30
     assert [r[-1] for r in matrix] == [1.08] * 30
 
