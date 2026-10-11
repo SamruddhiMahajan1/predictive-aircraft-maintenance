@@ -62,7 +62,12 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
-          cache-dependency-path: backend/pyproject.toml
+          cache-dependency-path: |
+            backend/pyproject.toml
+            ml/pyproject.toml
+
+      - name: Install ml package
+        run: pip install -e ../ml
 
       - name: Install
         run: pip install -e ".[dev]"
