@@ -127,7 +127,7 @@ jobs:
         run: npx eslint src --ext .js,.jsx
 
       - name: Test (node:test)
-        run: node --test src/**/*.test.js
+        run: npm test
 
       - name: npm audit (fail on high/critical)
         run: npm audit --audit-level=high

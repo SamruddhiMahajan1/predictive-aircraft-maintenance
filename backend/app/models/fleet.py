@@ -16,7 +16,6 @@ from sqlalchemy import (
     SmallInteger,
     String,
     UniqueConstraint,
-    text,
 )
 from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -40,6 +39,8 @@ class Aircraft(Base):
         CheckConstraint("rul BETWEEN 0 AND 125", name="aircraft_rul"),
         Index("ix_aircraft_mission_ready", "mission_ready"),
         Index("ix_aircraft_risk_level", "risk_level"),
+        Index("ix_aircraft_cmapss_unit_id", "cmapss_unit_id"),
+        Index("ix_aircraft_is_active", "is_active"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -124,8 +125,9 @@ class AircraftPart(Base):
         Index("ix_ap_aircraft", "aircraft_id"),
         Index("ix_ap_risk_level", "risk_level"),
         Index("ix_ap_health", "health"),
-        # hot path: the summary card and the critical list
-        Index("ix_ap_critical", "aircraft_id", postgresql_where=text("risk_level = 'critical'")),
+        Index("ix_aircraft_part_agency_id", "agency_id"),
+        Index("ix_aircraft_part_part_id", "part_id"),
+        Index("ix_aircraft_part_spare_id", "spare_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

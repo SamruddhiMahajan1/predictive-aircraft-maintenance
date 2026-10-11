@@ -84,10 +84,7 @@ class ComponentRef(Base):
 
 class FlightOpsMonthly(Base):
     __tablename__ = "flight_ops_monthly"
-    __table_args__ = (
-        UniqueConstraint("aircraft_ref_id", "month"),
-        Index("ix_flight_ops_aircraft", "aircraft_ref_id", "month"),
-    )
+    __table_args__ = (UniqueConstraint("aircraft_ref_id", "month"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     aircraft_ref_id: Mapped[int] = mapped_column(ForeignKey("aircraft_ref.id", ondelete="CASCADE"))

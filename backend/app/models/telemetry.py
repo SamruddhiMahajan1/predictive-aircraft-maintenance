@@ -15,6 +15,7 @@ from sqlalchemy import (
     SmallInteger,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -46,9 +47,17 @@ class HealthSnapshot(Base):
     __table_args__ = (
         UniqueConstraint("aircraft_id", "part_id", "cycle"),
         CheckConstraint("health BETWEEN 0 AND 1", name="hs_health"),
-        # serves "last N cycles" for every part in one ordered range scan
-        Index("ix_hs_window", "aircraft_id", "part_id", "cycle"),
         Index("ix_hs_recent", "aircraft_id", "cycle"),
+        Index("ix_health_snapshot_aircraft_id", "aircraft_id"),
+        Index("ix_health_snapshot_part_id", "part_id"),
+        Index(
+            "ix_health_snapshot_part_aircraft_cycle_desc",
+            "part_id",
+            "aircraft_id",
+            text("cycle DESC"),
+            postgresql_include=["health", "risk_level"],
+        ),
+        Index("ix_health_snapshot_recorded_at", "recorded_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -71,7 +80,8 @@ class EngineTelemetry(Base):
     __tablename__ = "engine_telemetry"
     __table_args__ = (
         UniqueConstraint("aircraft_id", "cycle"),
-        Index("ix_tel_window", "aircraft_id", "cycle"),
+        Index("ix_engine_telemetry_aircraft_id", "aircraft_id"),
+        Index("ix_engine_telemetry_recorded_at", "recorded_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -114,7 +124,8 @@ class ComponentHealth(Base):
             "AND hpt BETWEEN 0 AND 1 AND lpt BETWEEN 0 AND 1",
             name="ch_range",
         ),
-        Index("ix_ch_window", "aircraft_id", "cycle"),
+        Index("ix_component_health_aircraft_id", "aircraft_id"),
+        Index("ix_component_health_recorded_at", "recorded_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -138,7 +149,8 @@ class MlPrediction(Base):
     __table_args__ = (
         UniqueConstraint("aircraft_id", "cycle"),
         CheckConstraint("rul BETWEEN 0 AND 125", name="mlp_rul"),
-        Index("ix_mlp_window", "aircraft_id", "cycle"),
+        Index("ix_ml_prediction_aircraft_id", "aircraft_id"),
+        Index("ix_ml_prediction_created_at", "created_at"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)

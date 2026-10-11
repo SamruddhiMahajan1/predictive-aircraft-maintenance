@@ -79,6 +79,7 @@ class Spare(Base):
         CheckConstraint("stock >= 0", name="spare_stock"),
         Index("ix_spare_component_name", "component_name"),
         Index("ix_spare_low_stock", "criticality", postgresql_where=text("stock <= minimum_stock")),
+        Index("ix_spare_component_ref_id", "component_ref_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -120,6 +121,9 @@ class WorkOrder(Base):
         ),
         Index("ix_wo_aircraft", "aircraft_id", "status"),
         Index("ix_wo_open_due", "due_date", postgresql_where=text("status <> 'done'")),
+        Index("ix_work_order_aircraft_id", "aircraft_id"),
+        Index("ix_work_order_part_id", "part_id"),
+        Index("ix_work_order_status", "status"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -157,6 +161,10 @@ class AgencyBooking(Base):
     __table_args__ = (
         Index("ix_booking_agency", "agency_id", "eta_date"),
         Index("ix_booking_open", "eta_date", postgresql_where=text("completed_at IS NULL")),
+        Index("ix_agency_booking_agency_id", "agency_id"),
+        Index("ix_agency_booking_aircraft_id", "aircraft_id"),
+        Index("ix_agency_booking_part_id", "part_id"),
+        Index("ix_agency_booking_work_order_id", "work_order_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -188,6 +196,8 @@ class StockMovement(Base):
     __table_args__ = (
         CheckConstraint("delta <> 0", name="stock_delta"),
         Index("ix_stock_spare", "spare_id", "created_at"),
+        Index("ix_stock_movement_spare_id", "spare_id"),
+        Index("ix_stock_movement_work_order_id", "work_order_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

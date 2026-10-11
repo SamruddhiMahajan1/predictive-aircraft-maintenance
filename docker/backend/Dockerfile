@@ -16,7 +16,9 @@ COPY ml/ ./ml/
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
  && /opt/venv/bin/pip install "./ml" \
- && /opt/venv/bin/pip install ".[dev]"
+ && /opt/venv/bin/pip install ".[dev]" \
+ && /opt/venv/bin/pip uninstall -y nvidia-nccl-cu12 \
+ && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 
 
 # ---------- stage 2: runtime ----------

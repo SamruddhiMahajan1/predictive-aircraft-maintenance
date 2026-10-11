@@ -36,6 +36,9 @@ class Alert(Base):
             unique=True,
             postgresql_where=text("acknowledged = FALSE"),
         ),
+        Index("ix_alert_aircraft_id", "aircraft_id"),
+        Index("ix_alert_part_id", "part_id"),
+        Index("ix_alert_created_at_desc", text("created_at DESC")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)

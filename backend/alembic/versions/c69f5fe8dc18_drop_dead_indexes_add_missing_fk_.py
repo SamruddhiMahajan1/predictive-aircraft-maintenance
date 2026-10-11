@@ -120,4 +120,58 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    raise RuntimeError("This migration is intentionally one-way.")
+    # ── timezone fix revert: drop created_at server default ─────────────────────
+    for table in [
+        'aircraft', 'alert', 'ml_prediction', 'stock_movement', 'work_order',
+        'agency_booking',
+    ]:
+        op.execute(f"ALTER TABLE {table} ALTER COLUMN created_at DROP DEFAULT")
+
+    # ── autovacuum tuning revert ────────────────────────────────────────────────
+    op.execute("ALTER TABLE audit_log RESET (autovacuum_vacuum_scale_factor)")
+    op.execute("ALTER TABLE stock_movement RESET (autovacuum_vacuum_scale_factor)")
+    op.execute("ALTER TABLE ml_prediction RESET (autovacuum_vacuum_scale_factor)")
+    op.execute("ALTER TABLE health_snapshot RESET (autovacuum_vacuum_scale_factor)")
+    op.execute("ALTER TABLE component_health RESET (autovacuum_vacuum_scale_factor)")
+    op.execute("ALTER TABLE engine_telemetry RESET (autovacuum_vacuum_scale_factor)")
+
+    # ── drop 5 query indexes (M2) ───────────────────────────────────────────────
+    op.drop_index('ix_aircraft_is_active', table_name='aircraft')
+    op.drop_index('ix_work_order_status', table_name='work_order')
+    op.drop_index('ix_alert_created_at_desc', table_name='alert')
+    op.drop_index('ix_ml_prediction_created_at', table_name='ml_prediction')
+    op.drop_index('ix_health_snapshot_recorded_at', table_name='health_snapshot')
+    op.drop_index('ix_component_health_recorded_at', table_name='component_health')
+    op.drop_index('ix_engine_telemetry_recorded_at', table_name='engine_telemetry')
+    op.drop_index('ix_health_snapshot_part_aircraft_cycle_desc', table_name='health_snapshot')
+
+    # ── drop FK indexes (M2) ────────────────────────────────────────────────────
+    op.drop_index('ix_spare_component_ref_id', table_name='spare')
+    op.drop_index('ix_aircraft_part_spare_id', table_name='aircraft_part')
+    op.drop_index('ix_aircraft_part_part_id', table_name='aircraft_part')
+    op.drop_index('ix_aircraft_part_agency_id', table_name='aircraft_part')
+    op.drop_index('ix_stock_movement_work_order_id', table_name='stock_movement')
+    op.drop_index('ix_stock_movement_spare_id', table_name='stock_movement')
+    op.drop_index('ix_agency_booking_work_order_id', table_name='agency_booking')
+    op.drop_index('ix_agency_booking_part_id', table_name='agency_booking')
+    op.drop_index('ix_agency_booking_aircraft_id', table_name='agency_booking')
+    op.drop_index('ix_agency_booking_agency_id', table_name='agency_booking')
+    op.drop_index('ix_work_order_part_id', table_name='work_order')
+    op.drop_index('ix_work_order_aircraft_id', table_name='work_order')
+    op.drop_index('ix_alert_part_id', table_name='alert')
+    op.drop_index('ix_alert_aircraft_id', table_name='alert')
+    op.drop_index('ix_ml_prediction_aircraft_id', table_name='ml_prediction')
+    op.drop_index('ix_health_snapshot_part_id', table_name='health_snapshot')
+    op.drop_index('ix_health_snapshot_aircraft_id', table_name='health_snapshot')
+    op.drop_index('ix_component_health_aircraft_id', table_name='component_health')
+    op.drop_index('ix_engine_telemetry_aircraft_id', table_name='engine_telemetry')
+    op.drop_index('ix_aircraft_cmapss_unit_id', table_name='aircraft')
+
+    # ── recreate 7 dead indexes (M1) ────────────────────────────────────────────
+    op.create_index('ix_audit_actor', 'audit_log', ['actor_id', 'at'], unique=False)
+    op.create_index('ix_ap_critical', 'aircraft_part', ['aircraft_id'], unique=False, postgresql_where=sa.text("risk_level = 'critical'"))
+    op.create_index('ix_flight_ops_aircraft', 'flight_ops_monthly', ['aircraft_ref_id', 'month'], unique=False)
+    op.create_index('ix_hs_window', 'health_snapshot', ['aircraft_id', 'part_id', 'cycle'], unique=False)
+    op.create_index('ix_mlp_window', 'ml_prediction', ['aircraft_id', 'cycle'], unique=False)
+    op.create_index('ix_ch_window', 'component_health', ['aircraft_id', 'cycle'], unique=False)
+    op.create_index('ix_tel_window', 'engine_telemetry', ['aircraft_id', 'cycle'], unique=False)
