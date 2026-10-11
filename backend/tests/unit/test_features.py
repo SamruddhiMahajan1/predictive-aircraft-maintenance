@@ -4,6 +4,7 @@ These tests run without the artifact: they pin the 29-column contract and the
 preprocessing variants, which is what the artifact-dependent tests in
 tests/ml/test_model_quality.py check the real model against.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -26,10 +27,21 @@ S6_MEDIAN = 21.61
 
 def row(cycle: int, **overrides):
     sensors = {
-        "s2": 642.7, "s3": 1590.5, "s4": 1400.0 + cycle, "s6": 21.6,
-        "s7": 1525.0, "s8": 2538.0, "s9": 2455.0, "s11": 521.9,
-        "s12": 1.88, "s13": 2538.0, "s14": 11.72, "s15": 522.2,
-        "s17": 641.2, "s20": 542.7, "s21": 2388.0,
+        "s2": 642.7,
+        "s3": 1590.5,
+        "s4": 1400.0 + cycle,
+        "s6": 21.6,
+        "s7": 1525.0,
+        "s8": 2538.0,
+        "s9": 2455.0,
+        "s11": 521.9,
+        "s12": 1.88,
+        "s13": 2538.0,
+        "s14": 11.72,
+        "s15": 522.2,
+        "s17": 641.2,
+        "s20": 542.7,
+        "s21": 2388.0,
     }
     sensors.update(overrides.pop("sensors", {}))
     return {
@@ -100,9 +112,7 @@ def test_rolling_mean_is_a_trailing_average():
     rows = [row(c) for c in range(1, 7)]
     matrix, _ = build_window(rows, s6_median=S6_MEDIAN)
     idx = FEATURE_ORDER.index("s9_rollmean5")
-    assert matrix[-1][idx] == pytest.approx(
-        sum(r["sensors"]["s9"] for r in rows[-5:]) / 5
-    )
+    assert matrix[-1][idx] == pytest.approx(sum(r["sensors"]["s9"] for r in rows[-5:]) / 5)
 
 
 def test_rolling_std_is_zero_at_the_first_cycle():
@@ -110,10 +120,10 @@ def test_rolling_std_is_zero_at_the_first_cycle():
     rows = [row(c, sensors={"s9": 2455.0 + 3 * c}) for c in range(1, 7)]
     matrix, _ = build_window(rows, s6_median=S6_MEDIAN)
     idx = FEATURE_ORDER.index("s9_rollstd5")
-    assert matrix[0][idx] == 0.0            # single sample -> variance 0
+    assert matrix[0][idx] == 0.0  # single sample -> variance 0
     assert matrix[-1][idx] > 0.0
     # ddof=0 over the trailing 5 values: deviations -6,-3,0,3,6 -> var 18
-    assert matrix[-1][idx] == pytest.approx(18.0 ** 0.5, rel=1e-6)
+    assert matrix[-1][idx] == pytest.approx(18.0**0.5, rel=1e-6)
 
 
 def test_absolute_cycles_do_not_reach_the_matrix():
@@ -124,7 +134,9 @@ def test_absolute_cycles_do_not_reach_the_matrix():
     """
     rows = [row(i) for i in range(1, 7)]
     with_cycles, _ = build_window(
-        rows, s6_median=S6_MEDIAN, absolute_cycles=[195, 196, 197, 198, 199, 200],
+        rows,
+        s6_median=S6_MEDIAN,
+        absolute_cycles=[195, 196, 197, 198, 199, 200],
     )
     without, _ = build_window(rows, s6_median=S6_MEDIAN)
     assert with_cycles == without
@@ -148,13 +160,28 @@ def test_missing_s6_is_imputed_and_flagged():
     for r in rows:
         r["sensors"].pop("s6")
     matrix, imputed = build_window(rows, s6_median=S6_MEDIAN)
-    assert imputed is True
+    assert "s6" in imputed
     assert matrix[0][FEATURE_ORDER.index("s6")] == pytest.approx(S6_MEDIAN)
 
 
 def test_present_s6_is_not_flagged():
     _, imputed = build_window([row(c) for c in range(1, 7)], s6_median=S6_MEDIAN)
-    assert imputed is False
+    assert "s6" not in imputed
+
+
+def test_imputation_names_the_sensors_that_were_filled():
+    """It is a per-sensor set, not a bool.
+
+    A bool was `True` on essentially every real request -- s6 is absent from the API
+    spec's 14-sensor payload, and s10/s16 are constant in FD001 -- so it could never
+    distinguish "the caller omitted sensor_6, which costs accuracy" from "we filled in
+    two sensors this subset never measures". Both are now nameable.
+    """
+    rows = [row(c) for c in range(1, 7)]
+    for r in rows:
+        r["sensors"].pop("s6")
+    _, imputed = build_window(rows, s6_median=S6_MEDIAN)
+    assert imputed == {"s6"}
 
 
 # ── preprocessing variants ───────────────────────────────────────────────────
@@ -173,9 +200,7 @@ def test_z_scorer_standardises_before_the_rolling_statistics():
     raw, _ = build_window(rows, s6_median=S6_MEDIAN)
     zscored, _ = build_window(rows, s6_median=S6_MEDIAN, sensors_to_z=scorer)
 
-    assert zscored[0][FEATURE_ORDER.index("s4")] == pytest.approx(
-        (1401.0 - 100.0) / 10.0
-    )
+    assert zscored[0][FEATURE_ORDER.index("s4")] == pytest.approx((1401.0 - 100.0) / 10.0)
     roll = FEATURE_ORDER.index("s4_rollmean5")
     # window is cycles 1..6, so the trailing 5 are cycles 2..6
     expected = sum((1400.0 + c - 100.0) / 10.0 for c in range(2, 7)) / 5
@@ -187,7 +212,7 @@ def test_z_scorer_guards_a_zero_mad():
     stats = {"regime_0": {s: {"median": 5.0, "mad": 0.0} for s in SENSORS}}
     scorer = regime_z_scorer(stats, 0)
     out = scorer(dict.fromkeys(SENSORS, 5.0))
-    assert all(v == 0.0 for v in out.values())   # finite, not a ZeroDivisionError
+    assert all(v == 0.0 for v in out.values())  # finite, not a ZeroDivisionError
 
 
 def test_z_scorer_refuses_to_build_without_a_baseline():
@@ -215,10 +240,10 @@ def test_single_regime_when_there_are_no_centroids():
 
 def test_nearest_centroid_wins():
     centroids = [[0.0, 0.0, 0.0], [0.25, 0.62, 0.92], [1.0, 0.62, 0.25]]
-    assert classify_regime({"setting_1": 0.25, "setting_2": 0.62,
-                            "setting_3": 0.92}, centroids) == 1
-    assert classify_regime({"setting_1": 1.0, "setting_2": 0.62,
-                            "setting_3": 0.25}, centroids) == 2
+    assert (
+        classify_regime({"setting_1": 0.25, "setting_2": 0.62, "setting_3": 0.92}, centroids) == 1
+    )
+    assert classify_regime({"setting_1": 1.0, "setting_2": 0.62, "setting_3": 0.25}, centroids) == 2
 
 
 # ── multi-subset (pooled) contracts ───────────────────────────────────────────
@@ -228,8 +253,7 @@ def test_nearest_centroid_wins():
 def test_pooled_contract_adds_the_regime_column():
     order = list(FEATURE_ORDER) + ["regime_global"]
     window = [row(c) for c in range(1, 31)]
-    matrix, _ = build_window(window, s6_median=S6_MEDIAN, feature_order=order,
-                             regime_global=7)
+    matrix, _ = build_window(window, s6_median=S6_MEDIAN, feature_order=order, regime_global=7)
     assert len(matrix[0]) == 30
     assert [r[-1] for r in matrix] == [7.0] * 30
 
@@ -243,10 +267,12 @@ def test_the_29_feature_contract_ignores_the_regime_column():
 
 def test_baselines_resolve_per_subset():
     """The pooled artifact nests baselines[subset][regime]; FD004 must not read FD001."""
-    stats = {"baselines": {
-        "FD001": {"0": {s: {"median": 100.0, "mad": 10.0} for s in SENSORS}},
-        "FD004": {"0": {s: {"median": 1000.0, "mad": 1.0} for s in SENSORS}},
-    }}
+    stats = {
+        "baselines": {
+            "FD001": {"0": {s: {"median": 100.0, "mad": 10.0} for s in SENSORS}},
+            "FD004": {"0": {s: {"median": 1000.0, "mad": 1.0} for s in SENSORS}},
+        }
+    }
     values = dict.fromkeys(SENSORS, 110.0)
     assert regime_z_scorer(stats, 0, subset="FD001")(values)["s4"] == pytest.approx(1.0)
     assert regime_z_scorer(stats, 0, subset="FD004")(values)["s4"] == pytest.approx(-890.0)
@@ -254,10 +280,12 @@ def test_baselines_resolve_per_subset():
 
 def test_an_unknown_subset_gets_no_baseline_rather_than_another_subsets():
     """Silently borrowing FD001's medians for an FD004 request is the bug this prevents."""
-    stats = {"baselines": {
-        "FD001": {"0": {s: {"median": 100.0, "mad": 10.0} for s in SENSORS}},
-        "FD004": {"0": {s: {"median": 1000.0, "mad": 1.0} for s in SENSORS}},
-    }}
+    stats = {
+        "baselines": {
+            "FD001": {"0": {s: {"median": 100.0, "mad": 10.0} for s in SENSORS}},
+            "FD004": {"0": {s: {"median": 1000.0, "mad": 1.0} for s in SENSORS}},
+        }
+    }
     with pytest.raises(BusinessRuleError):
         regime_z_scorer(stats, 0, subset="FD002")
 
@@ -284,9 +312,10 @@ def test_a_sensor_absent_from_telemetry_is_filled_not_dropped():
     """Dropping it would shift every later column left by one — silently."""
     order = list(FEATURE_ORDER) + ["s10"]
     window = [{**row(c)} for c in range(1, 31)]
-    matrix, imputed = build_window(window, s6_median=S6_MEDIAN, feature_order=order,
-                                   missing_sensor_values={"s10": 1.08})
-    assert imputed is True
+    matrix, imputed = build_window(
+        window, s6_median=S6_MEDIAN, feature_order=order, missing_sensor_values={"s10": 1.08}
+    )
+    assert "s10" in imputed
     assert len(matrix[0]) == len(order) == 30
     assert [r[-1] for r in matrix] == [1.08] * 30
 
@@ -297,8 +326,7 @@ def test_z_scorer_zeroes_a_sensor_the_baselines_do_not_describe():
     `update()` only adds keys, so a skipped sensor kept its raw median and the booster
     read 1.08 where it was trained to read 0.0.
     """
-    stats = {"baselines": {"FD001": {"0": {s: {"median": 100.0, "mad": 10.0}
-                                          for s in SENSORS}}}}
+    stats = {"baselines": {"FD001": {"0": {s: {"median": 100.0, "mad": 10.0} for s in SENSORS}}}}
     scorer = regime_z_scorer(stats, 0, subset="FD001", sensors=(*SENSORS, "s10", "s16"))
     out = scorer({**dict.fromkeys(SENSORS, 110.0), "s10": 1.08, "s16": 0.02})
     assert out["s10"] == 0.0 and out["s16"] == 0.0

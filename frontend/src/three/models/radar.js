@@ -1,7 +1,7 @@
 import { ctx } from '../context.js';
 import { loadGlb } from '../loaders.js';
 import { mkPart } from '../helpers.js';
-import { setupGlb, finGlb } from '../subFaults.js';
+import { setupGlb, finGlb } from '../subFaults.jsx';
 
 // Radar and avionics (public/models/radar.glb) with antenna / gimbal / transmitter damage zones.
 export async function loadRadar() {

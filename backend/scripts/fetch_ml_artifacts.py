@@ -29,6 +29,7 @@ Exit codes
 1  the URL is unset with nothing staged, or a download failed, or the fetched set failed
    validation. Never a silent partial stage.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -66,7 +67,9 @@ def download(base_url: str, name: str, dest: Path, timeout: int = DEFAULT_TIMEOU
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:  # noqa: S310
             if resp.status != 200:
-                raise urllib.error.HTTPError(url, resp.status, "unexpected status", resp.headers, None)
+                raise urllib.error.HTTPError(
+                    url, resp.status, "unexpected status", resp.headers, None
+                )
             data = resp.read()
     except Exception as exc:  # noqa: BLE001 — report every transport failure the same way
         tmp.unlink(missing_ok=True)
@@ -102,8 +105,9 @@ def already_staged(settings: Settings, variant: str) -> bool:
     return True
 
 
-def fetch(variant: str, base_url: str | None, *, force: bool = False,
-          timeout: int = DEFAULT_TIMEOUT) -> int:
+def fetch(
+    variant: str, base_url: str | None, *, force: bool = False, timeout: int = DEFAULT_TIMEOUT
+) -> int:
     settings = Settings(ml_variant=variant)
     dest = settings.ml_dir
 
@@ -149,7 +153,7 @@ def fetch(variant: str, base_url: str | None, *, force: bool = False,
         names = artifact_names(contract) + [cname]
         derived = derived_metrics_name(contract)
         if derived and derived not in names:
-            names.append(derived)   # best-effort: the model loads without it
+            names.append(derived)  # best-effort: the model loads without it
 
         for name in dict.fromkeys(names):
             try:
@@ -181,9 +185,14 @@ def fetch(variant: str, base_url: str | None, *, force: bool = False,
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fetch the trained artifacts the loader reads.")
-    parser.add_argument("--variant", default=os.environ.get("FDT_ML_VARIANT", "all"), choices=VARIANTS)
-    parser.add_argument("--base-url", default=os.environ.get(ENV_URL),
-                        help=f"artifacts at <base-url>/<variant>/<file> (default: ${ENV_URL})")
+    parser.add_argument(
+        "--variant", default=os.environ.get("FDT_ML_VARIANT", "all"), choices=VARIANTS
+    )
+    parser.add_argument(
+        "--base-url",
+        default=os.environ.get(ENV_URL),
+        help=f"artifacts at <base-url>/<variant>/<file> (default: ${ENV_URL})",
+    )
     parser.add_argument("--force", action="store_true", help="re-download even if already staged")
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     args = parser.parse_args()

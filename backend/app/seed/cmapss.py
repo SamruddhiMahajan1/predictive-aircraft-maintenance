@@ -9,6 +9,7 @@ Unit ids are namespaced per subset (`FD001#7`) because every subset numbers its 
 from 1: without the prefix, FD002#7 and FD001#7 collide in one dict and the fleet would
 silently replay the wrong engine.
 """
+
 from __future__ import annotations
 
 import logging
@@ -19,15 +20,25 @@ from ..core.config import Settings, get_settings
 
 log = logging.getLogger(__name__)
 
-COLUMNS = (
-    ["unit_id", "cycle", "setting_1", "setting_2", "setting_3"]
-    + [f"sensor_{i}" for i in range(1, 22)]
-)
+COLUMNS = ["unit_id", "cycle", "setting_1", "setting_2", "setting_3"] + [
+    f"sensor_{i}" for i in range(1, 22)
+]
 SENSOR_KEYS = {
-    "sensor_2": "s2", "sensor_3": "s3", "sensor_4": "s4", "sensor_6": "s6",
-    "sensor_7": "s7", "sensor_8": "s8", "sensor_9": "s9", "sensor_11": "s11",
-    "sensor_12": "s12", "sensor_13": "s13", "sensor_14": "s14", "sensor_15": "s15",
-    "sensor_17": "s17", "sensor_20": "s20", "sensor_21": "s21",
+    "sensor_2": "s2",
+    "sensor_3": "s3",
+    "sensor_4": "s4",
+    "sensor_6": "s6",
+    "sensor_7": "s7",
+    "sensor_8": "s8",
+    "sensor_9": "s9",
+    "sensor_11": "s11",
+    "sensor_12": "s12",
+    "sensor_13": "s13",
+    "sensor_14": "s14",
+    "sensor_15": "s15",
+    "sensor_17": "s17",
+    "sensor_20": "s20",
+    "sensor_21": "s21",
 }
 UNIT_SEP = "#"
 KNOWN_SUBSETS = ("FD001", "FD002", "FD003", "FD004")
@@ -83,14 +94,16 @@ class CMapss:
         if not replayed:
             log.warning(
                 "no C-MAPSS training file for replay subset %s in %s — replay disabled",
-                self.replay, s.cmapss_dir,
+                self.replay,
+                s.cmapss_dir,
             )
             return self
 
         self.loaded = True
         log.info(
             "C-MAPSS loaded: %s (%d units, replayed) | staged %s",
-            self.replay, len(replayed),
+            self.replay,
+            len(replayed),
             ", ".join(f"{k}={len(v)}" for k, v in sorted(self.subsets.items())) or "none",
         )
         return self
@@ -118,8 +131,7 @@ class CMapss:
         subset = subset or self.replay or ""
         unit = int(unit) if unit is not None else int(unit_id)
         engine = self.subsets.get(subset, {}).get(unit, {})
-        out = [engine[c] for c in range(max(1, end_cycle - size + 1), end_cycle + 1)
-               if c in engine]
+        out = [engine[c] for c in range(max(1, end_cycle - size + 1), end_cycle + 1) if c in engine]
         return out or ([row] if row else [])
 
     def describe(self) -> dict[str, Any]:
@@ -156,8 +168,7 @@ def _read_train(path: Path, subset: str) -> dict[int, dict[int, dict]]:
                 "setting_3": float(raw[4]),
             },
             "sensors": {
-                alias: float(raw[COLUMNS.index(src)])
-                for src, alias in SENSOR_KEYS.items()
+                alias: float(raw[COLUMNS.index(src)]) for src, alias in SENSOR_KEYS.items()
             },
         }
     return units

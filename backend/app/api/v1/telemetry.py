@@ -3,6 +3,7 @@
 Transport only. Use cases live in `app.services.telemetry_service`, persistence in
 `app.repositories.telemetry_repo`.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter

@@ -1,4 +1,5 @@
 """Business rules 19-26. Pure functions — stdlib + pydantic only, no I/O."""
+
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -32,7 +33,12 @@ COMPONENT_SENSOR_MAP: dict[str, list[str]] = {
 # Sensors that drive RUL but belong to no component. Derived, not hand-maintained, so
 # adding a sensor to a component above cannot silently leave the list stale.
 UNASSIGNED_SENSORS: tuple[str, ...] = (
-    "s2", "s6", "s12", "s14", "s15", "s17",
+    "s2",
+    "s6",
+    "s12",
+    "s14",
+    "s15",
+    "s17",
 )
 
 ENGINE_PARTS = {"engine"}
@@ -114,11 +120,7 @@ def engine_spare(
     components: Mapping[str, float | None],
 ) -> tuple[str | None, float | None]:
     """Weakest of fan/hpc/hpt/lpt; ties prefer upstream. Null values ignored."""
-    present = {
-        k: float(v)
-        for k, v in components.items()
-        if k in COMPONENTS and v is not None
-    }
+    present = {k: float(v) for k, v in components.items() if k in COMPONENTS and v is not None}
     if not present:
         return None, None
     weakest = min(present.items(), key=lambda kv: (kv[1], COMPONENTS.index(kv[0])))[0]

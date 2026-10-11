@@ -1,4 +1,5 @@
 """Maintenance write endpoints — spec items 35-39."""
+
 from __future__ import annotations
 
 from typing import Annotated
@@ -79,8 +80,11 @@ def list_agencies(db: DbSession):
     return svc.list_agencies(db)
 
 
-@router.post("/agencies/{agency_id}/bookings", response_model=BookingResponse,
-             status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/agencies/{agency_id}/bookings",
+    response_model=BookingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def create_booking(db: DbSession, agency_id: int, payload: BookingRequest):
     return svc.publish_events(svc.create_booking(db, agency_id, payload.model_dump()))
 

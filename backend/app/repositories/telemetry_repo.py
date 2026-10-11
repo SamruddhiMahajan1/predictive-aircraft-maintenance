@@ -6,6 +6,7 @@ semantics for `engine_telemetry` / `component_health` / `ml_predictions` /
 `health_snapshots` are defined exactly once (docs/02 §3: the repository layer owns
 persistence; routers and background loops own none).
 """
+
 from __future__ import annotations
 
 from datetime import datetime

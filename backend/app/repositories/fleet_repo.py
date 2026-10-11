@@ -3,6 +3,7 @@
 The fixed query count per endpoint is deliberate: the N+1 guard asserted by
 tests/performance/test_budgets.py (docs/11 §5.3).
 """
+
 from __future__ import annotations
 
 from sqlalchemy import func, select
@@ -188,9 +189,7 @@ def fleet_snapshots(db: Session, window: int) -> dict[int, list[dict]]:
     ).all()
     grouped: dict[int, list[dict]] = {}
     for aircraft_id, cycle, health in rows:
-        grouped.setdefault(aircraft_id, []).append(
-            {"cycle": cycle, "health": float(health)}
-        )
+        grouped.setdefault(aircraft_id, []).append({"cycle": cycle, "health": float(health)})
     return grouped
 
 
@@ -202,9 +201,7 @@ def list_spares(db: Session) -> list[Spare]:
 def last_stock_movements(db: Session) -> dict[int, StockMovement]:
     """Latest movement per spare in ONE query — the N+1 guard for GET /spares."""
     latest: dict[int, StockMovement] = {}
-    rows = db.scalars(
-        select(StockMovement).order_by(StockMovement.created_at.desc())
-    )
+    rows = db.scalars(select(StockMovement).order_by(StockMovement.created_at.desc()))
     for row in rows:
         latest.setdefault(row.spare_id, row)
     return latest
@@ -270,9 +267,7 @@ def get_alert(db: Session, alert_id: int) -> Alert | None:
 
 
 def unacked_count(db: Session) -> int:
-    return db.scalar(
-        select(func.count(Alert.id)).where(Alert.acknowledged.is_(False))
-    ) or 0
+    return db.scalar(select(func.count(Alert.id)).where(Alert.acknowledged.is_(False))) or 0
 
 
 # ── technical records ──────────────────────────────────────────────────────────

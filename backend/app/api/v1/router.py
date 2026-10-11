@@ -1,4 +1,5 @@
 """Aggregates every v1 router."""
+
 from fastapi import APIRouter
 
 from . import fleet, maintenance, ops, telemetry

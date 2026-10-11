@@ -192,9 +192,10 @@ only required initialisation.
 
 ### What `make setup` does
 
-1. Copies `.env.example` → `.env` and generates a random `FDT_JWT_SECRET`.
-2. Downloads the four NASA C-MAPSS subsets into `backend/data/cmapss/` (~43 MB,
-   gitignored — see [Data sources](#data-sources)).
+1. Copies `.env.example` → `.env`.
+2. Downloads NASA C-MAPSS **FD001** into `backend/data/cmapss/` (26 MB, gitignored — see
+   [Data sources](#data-sources)). FD001 is the only subset the replay engine and the
+   shipped artifact use; `make fetch-data-all` adds FD002–FD004 (~43 MB total).
 3. Builds both images.
 4. Starts PostgreSQL and waits for it to be healthy.
 5. Runs `alembic upgrade head` and `python -m app.seed.run`.
@@ -246,7 +247,7 @@ predictive-aircraft-maintenance/
 │   ├── alembic/versions/         # one migration: 20 tables, enums, 33 indexes
 │   ├── app/
 │   │   ├── main.py               # factory, lifespan, middleware, error handler
-│   │   ├── api/                  # v1 routers + dependencies (db, auth, RBAC)
+│   │   ├── api/                  # v1 routers + dependencies (db session, settings)
 │   │   ├── services/             # use cases
 │   │   ├── repositories/         # data access
 │   │   ├── domain/               # pure logic — rules, health, scheduling
@@ -335,67 +336,60 @@ an `audit_log` row carrying the actor, the action, the entity and a JSON diff.
 
 ## API reference
 
-All routes are under `/api/v1`. Authentication is a bearer JWT
-(`Authorization: Bearer <token>`); `viewer` is read-only everywhere, mutations require
-`officer` or `commander`.
-
-### Auth
-
-| Method | Path | Role | Purpose |
-|---|---|---|---|
-| `POST` | `/auth/login` | — | Exchange credentials for a JWT + user profile |
-| `GET` | `/auth/me` | any | Current user and effective permissions |
+All routes are under `/api/v1`. **No route requires authentication** — see
+[Security model](#security-model). Every endpoint is open, including the 13 mutating ones,
+and the deployment boundary is the network.
 
 ### Fleet
 
-| Method | Path | Role | Purpose |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/aircraft` | any | List with health, RUL, risk and readiness |
-| `GET` | `/aircraft/{code_or_id}` | any | Single aircraft detail |
-| `GET` | `/aircraft/{code_or_id}/engine` | any | Engine history, components, top sensors |
-| `GET` | `/aircraft/{code_or_id}/parts/{part}` | any | One part's health and provenance |
-| `GET` | `/fleet/summary` | any | Fleet rollup + aligned health series |
-| `GET` | `/fleet/heatmap` | any | Aircraft × part health matrix |
-| `GET` | `/fleet/actions` | any | Ranked recommended actions |
-| `GET` | `/maintenance/schedule` | any | One row per aircraft: action, do-by, spares, agency |
+| `GET` | `/aircraft` | open | List with health, RUL, risk and readiness |
+| `GET` | `/aircraft/{code_or_id}` | open | Single aircraft detail |
+| `GET` | `/aircraft/{code_or_id}/engine` | open | Engine history, components, top sensors |
+| `GET` | `/aircraft/{code_or_id}/parts/{part}` | open | One part's health and provenance |
+| `GET` | `/fleet/summary` | open | Fleet rollup + aligned health series |
+| `GET` | `/fleet/heatmap` | open | Aircraft × part health matrix |
+| `GET` | `/fleet/actions` | open | Ranked recommended actions |
+| `GET` | `/maintenance/schedule` | open | One row per aircraft: action, do-by, spares, agency |
 
 ### Maintenance
 
-| Method | Path | Role | Purpose |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/work-orders` | any | List, filterable by status, aircraft, part |
-| `POST` | `/work-orders` | officer+ | Create. Requires `aircraft`, `part`, `due_date` |
-| `PATCH` | `/work-orders/{id}` | officer+ | Update status, priority, due date, notes |
-| `GET` | `/spares` | any | Stock, criticality, lead times |
-| `PATCH` | `/spares/{part_ref_id}` | officer+ | Adjust stock or lead time |
-| `POST` | `/spares/{part_ref_id}/reserve` | officer+ | Reserve against a work order |
-| `GET` | `/agencies` | any | Agencies with free slots and turnaround |
-| `POST` | `/agencies/{id}/bookings` | officer+ | Book a maintenance slot |
+| `GET` | `/work-orders` | open | List, filterable by status, aircraft, part |
+| `POST` | `/work-orders` | open | Create. Requires `aircraft`, `part`, `due_date` |
+| `PATCH` | `/work-orders/{id}` | open | Update status, priority, due date, notes |
+| `GET` | `/spares` | open | Stock, criticality, lead times |
+| `PATCH` | `/spares/{part_ref_id}` | open | Adjust stock or lead time |
+| `POST` | `/spares/{part_ref_id}/reserve` | open | Reserve against a work order |
+| `GET` | `/agencies` | open | Agencies with free slots and turnaround |
+| `POST` | `/agencies/{id}/bookings` | open | Book a maintenance slot |
 
 ### Alerts
 
-| Method | Path | Role | Purpose |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `GET` | `/alerts` | any | Filter by `acknowledged`, `level`, `aircraft` |
-| `POST` | `/alerts/{id}/ack` | officer+ | Acknowledge with an optional note |
-| `GET` | `/audit` | any | Audit trail |
+| `GET` | `/alerts` | open | Filter by `acknowledged`, `level`, `aircraft` |
+| `POST` | `/alerts/{id}/ack` | open | Acknowledge with an optional note |
+| `GET` | `/audit` | open | Audit trail |
 
 ### Telemetry and ML
 
-| Method | Path | Role | Purpose |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
-| `POST` | `/telemetry` | officer+ | Ingest a batch; infers, persists, publishes |
-| `POST` | `/internal/ml/predict` | officer+ | Score an arbitrary window against the model |
+| `POST` | `/telemetry` | open | Ingest a batch; infers, persists, publishes |
+| `POST` | `/internal/ml/predict` | open | Score an arbitrary window against the model |
 
 ### Operations
 
-| Method | Path | Role | Purpose |
+| Method | Path | Auth | Purpose |
 |---|---|---|---|
 | `GET` | `/healthz` | — | Liveness, database and ML status |
 | `GET` | `/readyz` | — | Readiness probe |
-| `GET` | `/demo/status` | any | Replay engine state, subscribers, dropped events |
-| `POST` | `/demo/pause` · `/demo/resume` · `/demo/tick` | officer+ | Drive the replay manually |
-| `POST` | `/seed/run` | commander | Re-run the idempotent seed |
+| `GET` | `/demo/status` | open | Replay engine state, subscribers, dropped events |
+| `POST` | `/demo/pause` · `/demo/resume` · `/demo/tick` | open | Drive the replay manually |
+| `POST` | `/seed/run` | open | Re-run the idempotent seed |
 
 Full request and response schemas: <http://localhost:8000/docs>.
 
@@ -500,13 +494,23 @@ Protocol: [`docs/09-realtime-and-demo-mode.md`](docs/09-realtime-and-demo-mode.m
 | Source | Contents | In git? |
 |---|---|---|
 | Fleet CSVs | 8 tables, ~5,900 rows: aircraft, components, flight operations, agencies, spares, maintenance records, snag logs | **Yes** — `backend/data/raw/`, 584 KB |
-| NASA C-MAPSS | 20,631+ cycle rows across FD001–FD004, 21 sensors, 3 operating settings, ground-truth RUL | **No** — 43 MB, `make fetch-data` |
+| NASA C-MAPSS | 20,631 cycle rows (FD001), 21 sensors, 3 operating settings, ground-truth RUL | **No** — `make fetch-data` fetches FD001 (26 MB); `make fetch-data-all` adds FD002–FD004 (43 MB total) |
 | Trained artifacts | XGBoost boosters, feature contracts, regime baselines | **No** — 1.2 MB, `make fetch-model` (`FDT_ML_ARTIFACTS_URL`) |
 
 C-MAPSS is third-party with an unchanged upstream source, so re-fetching beats carrying
 43 MB in every clone. The API **fails its Docker build** if `data/raw` is missing, and
 `make setup` fetches C-MAPSS before the first start, so a misconfigured checkout is
 caught at build time rather than degrading silently into an empty replay.
+
+**Download verification.** `scripts/fetch-cmapss.sh` checks every file against NASA's
+published row count, and additionally against a pinned SHA-256 where one exists. The row
+count is the stronger of the two, because a digest can only be pinned from a copy that was
+itself trusted: both configured mirrors currently serve byte-identical FD002 and FD004
+`test_*`/`RUL_*` files carrying 259 and 248 engine units where NASA publishes 100 — train
+data concatenated with test data — and FD003's test file one spurious row per engine.
+Pinning those digests would make the script permanently accept the corruption, so they are
+deliberately left unpinned and the row count rejects them instead. FD001, the only subset
+the replay engine and the shipped booster use, is verified by both digest and row count.
 
 ---
 
@@ -519,8 +523,6 @@ Every setting is an environment variable prefixed `FDT_`, declared in
 |---|---|---|
 | `FDT_ENVIRONMENT` | `development` | `development` \| `staging` \| `production` |
 | `FDT_DATABASE_URL` | local Postgres | SQLAlchemy URL |
-| `FDT_JWT_SECRET` | dev placeholder | Signs JWTs. **Required** in production |
-| `FDT_JWT_TTL_MINUTES` | `720` | Token lifetime |
 | `FDT_LOG_LEVEL` | `INFO` | Root log level |
 | `FDT_CORS_ORIGINS` | `localhost:5173,8080` | Comma-separated browser allowlist |
 | `FDT_DEMO_MODE` | `true` | Replay engine. Must be `false` in production |
@@ -608,10 +610,12 @@ Set at minimum:
 
 ```bash
 FDT_ENVIRONMENT=production
-FDT_JWT_SECRET=$(openssl rand -hex 32)      # the API refuses to boot otherwise
 POSTGRES_PASSWORD=<a real password>
 FDT_DEMO_MODE=false                        # also enforced at startup
 ```
+
+**The application has no authentication.** Do not publish it to the public internet —
+see [Security model](#security-model) for the deployment boundary that does apply.
 
 Then:
 
@@ -685,35 +689,73 @@ make db-restore     # restore (destructive)
 
 ## Security model
 
+**This application has no authentication or authorisation.** That is a deliberate design
+choice, not an oversight, and this section states exactly what it does and does not protect.
+
+Migration `b7e3f1a9c2d4` removed the authentication subsystem — the `users` table, the
+`user_role` enum and five foreign keys — along with the login route, the token issuing and
+verification code, and the router-level role dependency. No password hashing, token issuing
+or identity check exists anywhere in `backend/app/` or `frontend/src/`.
+
+The consequences, stated plainly:
+
+- **All 27 documented endpoints are open.** The OpenAPI document declares no
+  `securitySchemes` and no global `security` requirement; no endpoint carries a security
+  requirement. There is no role, session or principal concept in the request path.
+- **13 mutating endpoints are open to anyone who can reach the API**, including through the
+  nginx `/api/` proxy:
+
+  ```
+  POST   /api/v1/work-orders              PATCH /api/v1/spares/{part_ref_id}
+  PATCH  /api/v1/work-orders/{id}         POST  /api/v1/spares/{part_ref_id}/reserve
+  PATCH  /api/v1/alerts/{id}/ack          POST  /api/v1/agencies/{id}/bookings
+  POST   /api/v1/telemetry                POST  /api/v1/seed/run
+  POST   /api/v1/internal/ml/predict      POST  /api/v1/ml/reload
+  POST   /api/v1/demo/pause|resume|tick
+  ```
+
+- **The audit trail has no actor.** `audit_log.actor_id` is written as `NULL` at all six
+  call sites in `services/maintenance_service.py` (`actor_name="system"`). The table
+  records what changed and when, never who changed it. The `ix_audit_actor` index built for
+  the removed user table was dropped in Phase 3.
+- **There is no demo password.** An earlier revision seeded three demo accounts with
+  committed passwords; those rows no longer exist and nothing in the console asks for a
+  credential.
+
+### What the application does protect
+
 | Concern | Measure |
 |---|---|
-| Passwords | bcrypt via `passlib`, never stored or logged |
-| Sessions | Signed JWT, `HS256`, configurable TTL, explicit role claim |
-| Authorisation | Structural RBAC — a viewer is denied by a router-level dependency, not by per-handpoint `if` statements |
-| CORS | Explicit origin allowlist, never `*`. Empty in production |
-| WebSocket | Origin check plus token verification before `accept()`; closes with `4401`/`4408` |
 | SQL injection | SQLAlchemy parameter binding throughout; the only string-built SQL is a static `COUNT` label in the performance tests |
-| Secrets | `.env` is gitignored; `.env.example` holds placeholders only |
-| Production misconfiguration | The API refuses to start on the committed development JWT secret when `FDT_ENVIRONMENT=production` |
-| Audit | Every mutation records actor, action, entity and a JSON diff |
-| Transport | nginx serves over plain HTTP by default — terminate TLS at the load balancer or add a `listen 443 ssl` block to `docker/frontend/nginx.conf.template` |
+| Secrets in source | `.env` is gitignored; `.env.example` holds placeholders only |
+| Secrets in containers | Backend ports bind to loopback in dev and are unpublished in prod; both images run as non-root with `no-new-privileges` |
+| WebSocket origin | `realtime/ws.py` checks `Origin` against the allowlist before `accept()`, closing with `4408`. This is a cross-site-requesting defence, **not** an identity check — it does not distinguish two authorised callers from two anonymous ones |
+| Bounded fan-out | The WebSocket bus uses a bounded `asyncio.Queue` with an explicit overflow sentinel, so a slow client cannot exhaust server memory |
+| Action traceability | Every mutation writes an `audit_log` row with action, entity and a JSON diff. It answers *what changed*, not *who changed it* |
+| Error disclosure | SQLAlchemy and psycopg errors are not interpolated into HTTP responses |
+| Dependency and image surface | `npm audit`, Dependabot, and container image scanning run in CI |
 
-**Before deploying for real:** the three demo accounts and their passwords are committed
-in `backend/app/seed/run.py` and must be removed or rotated; and `FDT_JWT_SECRET` must be
-generated per environment.
+### Deployment boundary
 
-`FDT_DEMO_MODE` chooses where telemetry comes from, not how secure the deployment is, so it
-no longer conflicts with `FDT_ENVIRONMENT=production`. With it on, the replay engine feeds
-the twin from the seeded C-MAPSS engines; with it off, nothing moves unless something posts
-to `POST /api/v1/telemetry`.
+Because there is no authentication, **network placement is the access control.** The API is
+designed to run inside a trust boundary it does not itself enforce:
 
-The console requires an explicit sign-in. It used to have none: `ensureToken()` quietly
-authenticated as the demo commander whenever no token was held, so every deployment — public
-or not — came up already authenticated with the most privileged role. The demo shortcut is
-now a visible button shown only when `VITE_DEMO_MODE=true`. A production build does not
-merely hide it: the branch — and the fixture password inside it — is dead-code-eliminated
-out of the bundle. `tests/bundle.test.mjs` asserts this against a real build, because the
-first implementation shipped the password anyway while merely hiding the button.
+| Placement | Supported |
+|---|---|
+| Local development (`make up`, ports on `127.0.0.1` only) | **Yes** — intended configuration |
+| Internal network behind a VPN, or an air-gapped network | **Yes** — intended configuration |
+| Shared staging environment | Only with authentication added in front of the API |
+| Public internet | **No.** Do not expose it. Anyone who can reach it can create work orders, acknowledge alerts, move stock, inject telemetry and force a model reload |
+
+If you need public or multi-tenant exposure, put an authenticating reverse proxy in front of
+`/api/` and `/ws` before exposing it. The application is deliberately built so that this can
+be added without changing the API shape — no endpoint currently *depends* on being
+unauthenticated.
+
+`FDT_DEMO_MODE` chooses where telemetry comes from; it has no effect on any of the above.
+
+nginx serves over plain HTTP by default — terminate TLS at the load balancer, or add a
+`listen 443 ssl` block to `docker/frontend/nginx.conf.template`.
 
 ---
 
@@ -758,9 +800,6 @@ the magic bytes and gunzips it itself. `docker/frontend/nginx.conf.template` set
 ---
 
 ## Troubleshooting
-
-**`make up` fails with `FDT_JWT_SECRET:?set FDT_JWT_SECRET in .env`**
-Run `make setup`, or `cp .env.example .env` and set a secret.
 
 **The 3D viewer is blank and the status reads "Could not load a model"**
 The assets did not reach the bundle. Check `frontend/dist/models/` and that

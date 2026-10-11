@@ -1,4 +1,5 @@
 """Scheduling arithmetic — free slots, back-in-service breakdown, ETA."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -39,8 +40,7 @@ def test_free_slot_reaches_zero_when_the_horizon_is_full():
 
 
 def test_more_booked_days_never_lengthen_the_wait():
-    waits = [agency_free_slot_days(20, booked_days=d, open_bookings=2)
-             for d in range(0, 31, 3)]
+    waits = [agency_free_slot_days(20, booked_days=d, open_bookings=2) for d in range(0, 31, 3)]
     assert all(a >= b for a, b in zip(waits, waits[1:])), waits
 
 
@@ -50,8 +50,13 @@ def test_zero_capacity_is_safe():
 
 def test_breakdown_exposes_the_arithmetic():
     out = back_in_service_breakdown(2, 24, 12, stock=0)
-    assert out == {"slot_days": 2, "turnaround_days": 24, "lead_time_days": 12,
-                   "lead_time_applied": True, "total": 38}
+    assert out == {
+        "slot_days": 2,
+        "turnaround_days": 24,
+        "lead_time_days": 12,
+        "lead_time_applied": True,
+        "total": 38,
+    }
 
 
 def test_breakdown_drops_lead_time_when_in_stock():

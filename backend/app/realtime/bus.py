@@ -1,4 +1,5 @@
 """In-process event bus. One API process, so no Redis (docs/02 §4)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,7 +21,7 @@ class _Overflow:
 
     __slots__ = ()
 
-    def __repr__(self) -> str:                      # pragma: no cover — debug aid
+    def __repr__(self) -> str:  # pragma: no cover — debug aid
         return "<overflow>"
 
 
@@ -67,7 +68,7 @@ class EventBus:
         try:
             running: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
         except RuntimeError:
-            running = None                      # sync handler on a worker thread
+            running = None  # sync handler on a worker thread
         if running is loop:
             loop.create_task(self.publish(event))
         else:

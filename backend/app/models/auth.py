@@ -1,4 +1,5 @@
 """Audit table."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -26,6 +27,5 @@ class AuditLog(Base):
 
     __table_args__ = (
         Index("ix_audit_entity", "entity", "entity_id", "at"),
-        Index("ix_audit_actor", "actor_id", "at"),
         Index("ix_audit_at", "at"),
     )

@@ -3,6 +3,7 @@
 Tests exercise the actual database (partial indexes, row locks, CHECK constraints)
 rather than a mock, because most of what is worth verifying lives in the schema.
 """
+
 from __future__ import annotations
 
 import os
@@ -77,12 +78,12 @@ def _alembic(*args: str) -> None:
     alembic_bin = pathlib.Path(sys.executable).parent / "alembic"
     result = subprocess.run(
         [str(alembic_bin), *args],
-        cwd=ROOT, capture_output=True, text=True,
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
     )
     if result.returncode != 0:
-        raise RuntimeError(
-            f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}"
-        )
+        raise RuntimeError(f"alembic {' '.join(args)} failed:\n{result.stdout}\n{result.stderr}")
 
 
 def _seed() -> dict:
@@ -149,6 +150,7 @@ def db():
 @pytest.fixture
 def wait_for():
     """Poll until `predicate` holds or the timeout expires."""
+
     def _wait(predicate, timeout: float = 5.0, interval: float = 0.05) -> bool:
         deadline = time.time() + timeout
         while time.time() < deadline:

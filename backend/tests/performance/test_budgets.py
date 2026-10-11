@@ -1,4 +1,5 @@
 """Performance budgets (spec 50) and the N+1 guard (docs/11 §5.3)."""
+
 from __future__ import annotations
 
 import statistics
@@ -73,17 +74,36 @@ def test_get_endpoints_meet_the_200ms_budget(client, path):
     assert p95 < GET_BUDGET_MS, f"{path}: p95 {p95:.1f}ms exceeds {GET_BUDGET_MS}ms"
 
 
-SENSORS = {"s2": 642.4, "s3": 1590.1, "s4": 1401.2, "s7": 553.1, "s8": 2388.2,
-           "s9": 9065.4, "s11": 521.3, "s12": 2387.9, "s13": 8131.5, "s14": 0.62,
-           "s15": 522.2, "s17": 641.2, "s20": 542.7, "s21": 2388.0}
+SENSORS = {
+    "s2": 642.4,
+    "s3": 1590.1,
+    "s4": 1401.2,
+    "s7": 553.1,
+    "s8": 2388.2,
+    "s9": 9065.4,
+    "s11": 521.3,
+    "s12": 2387.9,
+    "s13": 8131.5,
+    "s14": 0.62,
+    "s15": 522.2,
+    "s17": 641.2,
+    "s20": 542.7,
+    "s21": 2388.0,
+}
 
 
 def _ml_payload(size: int = 30) -> dict:
-    return {"window": [{"cycle": i + 1,
-                        "settings": {"setting_1": 0.0, "setting_2": 0.0,
-                                     "setting_3": 100.0},
-                        "sensors": dict(SENSORS)} for i in range(size)],
-            "persist": False}
+    return {
+        "window": [
+            {
+                "cycle": i + 1,
+                "settings": {"setting_1": 0.0, "setting_2": 0.0, "setting_3": 100.0},
+                "sensors": dict(SENSORS),
+            }
+            for i in range(size)
+        ],
+        "persist": False,
+    }
 
 
 def test_ml_endpoint_meets_the_100ms_budget(client):
@@ -101,20 +121,23 @@ def test_ml_endpoint_meets_the_100ms_budget(client):
     assert _p95(round_trip) < ML_BUDGET_MS, f"round-trip p95 {_p95(round_trip):.1f}ms"
 
 
-@pytest.mark.parametrize("path", [
-    "/api/v1/fleet/summary",
-    "/api/v1/aircraft",
-    "/api/v1/aircraft/Fighter-01",
-    "/api/v1/aircraft/Fighter-01/engine",
-    "/api/v1/aircraft/Fighter-01/parts/engine",
-    "/api/v1/fleet/heatmap",
-    "/api/v1/fleet/actions",
-    "/api/v1/maintenance/schedule",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/api/v1/fleet/summary",
+        "/api/v1/aircraft",
+        "/api/v1/aircraft/Fighter-01",
+        "/api/v1/aircraft/Fighter-01/engine",
+        "/api/v1/aircraft/Fighter-01/parts/engine",
+        "/api/v1/fleet/heatmap",
+        "/api/v1/fleet/actions",
+        "/api/v1/maintenance/schedule",
+    ],
+)
 def test_query_count_is_bounded_and_not_per_row(client, query_counter, path):
     """The N+1 guard: a query inside a comprehension shows up here as a count
     that grows with the fleet. The ceiling allows generous headroom."""
-    client.get(path)          # warm caches/session
+    client.get(path)  # warm caches/session
     query_counter["n"] = 0
     client.get(path)
     statements = query_counter["n"]

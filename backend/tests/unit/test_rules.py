@@ -2,6 +2,7 @@
 
 Runs in well under 50 ms because app/domain imports no I/O module.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -96,8 +97,7 @@ def test_worst_part_empty():
 # ── rule 22 ────────────────────────────────────────────────────────────────────
 @pytest.mark.parametrize(
     "risk,expected",
-    [("healthy", "Routine check"), ("watch", "Plan inspection"),
-     ("critical", "Replace now")],
+    [("healthy", "Routine check"), ("watch", "Plan inspection"), ("critical", "Replace now")],
 )
 def test_action_per_band(risk, expected):
     assert recommended_action(risk) == expected
@@ -201,7 +201,7 @@ def test_evaluate_aircraft_matches_spec_example():
     out = evaluate_aircraft(parts, engine_rul=118, current_cycle=87)
     assert out["worst_part"] == "radar"
     assert out["risk"] == "critical"
-    assert out["mission_ready"] is False     # radar at 0.31 fails rule 20
+    assert out["mission_ready"] is False  # radar at 0.31 fails rule 20
 
 
 def test_evaluate_aircraft_healthy_fleet():

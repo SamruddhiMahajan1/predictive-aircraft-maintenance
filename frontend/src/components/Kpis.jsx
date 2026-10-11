@@ -1,12 +1,11 @@
-import { useStore } from '../state/useStore.js';
+import { useStore, selectFleetStats } from '../state/useStore.js';
 import { fleet } from '../data/fleet.js';
 import { PARTS } from '../data/parts.js';
-import { fleetStats, pc, shortId } from '../lib/fleetStats.js';
+import { pc, shortId } from '../lib/fleetStats.js';
 import { rul, ready } from '../lib/health.js';
 
 export default function Kpis() {
-  const app = useStore();
-  const { n, nr, nCrit, avg, lo, loRul, w0, availability, serverBacked } = fleetStats();
+  const { n, nr, nCrit, avg, lo, loRul, w0, availability, serverBacked } = selectFleetStats();
   const grounded = fleet.filter((e) => e.rul != null && !ready(e));
   const cycles = fleet.reduce((a, e) => Math.max(a, e.cycle || 0), 0);
 

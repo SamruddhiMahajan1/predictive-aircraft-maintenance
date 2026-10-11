@@ -1,4 +1,5 @@
 """FastAPI application factory, lifespan and middleware (docs/02 §2)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,7 +19,7 @@ from .api.v1.router import api_router
 from .core.config import Settings, get_settings
 from .core.errors import DomainError
 from .core.logging import configure_logging, new_request_id, request_id_var
-from .db.session import get_sessionmaker
+from .db.session import bound_threadpool, get_sessionmaker
 from .ml import model_store
 from .realtime.bus import bus
 from .realtime.replay import start_replay, stop_replay
@@ -224,6 +225,11 @@ async def lifespan(app: FastAPI):
 
     bus.bind_loop()
 
+    # Match anyio's threadpool to the connection pool. Done here rather than in
+    # `get_engine` because anyio's limiter needs a running event loop, and `get_engine`
+    # is also called from sync contexts (tests, seed scripts) where it raises.
+    bound_threadpool(settings.db_pool_size + settings.db_max_overflow)
+
     # Per-app, not a module singleton: the pruner's task belongs to this app's event
     # loop, so an instance shared across every app built in the process cannot be
     # stopped safely from a second one.
@@ -288,9 +294,7 @@ def _mount_frontend(app: FastAPI, settings: Settings) -> None:
     for prefix in WEB_MOUNT_PREFIXES:
         directory = dist / prefix
         if directory.is_dir():
-            app.mount(
-                f"/{prefix}", StaticFiles(directory=directory), name=f"web-{prefix}"
-            )
+            app.mount(f"/{prefix}", StaticFiles(directory=directory), name=f"web-{prefix}")
             mounted.append(prefix)
 
     log.info("serving the web build from %s (/, %s)", dist.resolve(), ", ".join(mounted))
@@ -313,7 +317,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,   # explicit allowlist, never "*"
+        allow_origins=settings.cors_origins,  # explicit allowlist, never "*"
         allow_credentials=True,
         allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "X-Request-ID"],
@@ -328,9 +332,7 @@ def create_app() -> FastAPI:
     # SelectiveGZipMiddleware): the GLB scenes are dense binaries that gain
     # nothing from a second compression pass. `engine.bin.gz` is already
     # gzipped and was being pointlessly re-compressed per download.
-    app.add_middleware(
-        SelectiveGZipMiddleware, minimum_size=500, compresslevel=5
-    )
+    app.add_middleware(SelectiveGZipMiddleware, minimum_size=500, compresslevel=5)
 
     @app.middleware("http")
     async def cache_control(request: Request, call_next):
@@ -341,9 +343,7 @@ def create_app() -> FastAPI:
         # cold visitor re-downloads ~10 MB of JS + GLBs on every navigation,
         # which is the bulk of "takes a lot of time to render".
         if path.startswith("/assets/") or path.startswith("/models/"):
-            response.headers.setdefault(
-                "Cache-Control", "public, max-age=31536000, immutable"
-            )
+            response.headers.setdefault("Cache-Control", "public, max-age=31536000, immutable")
         elif path in ("/healthz", "/readyz"):
             # Keep-alive bots hit these every 5 min — never let a CDN cache them.
             response.headers.setdefault("Cache-Control", "no-store")
@@ -366,8 +366,10 @@ def create_app() -> FastAPI:
             status_code=exc.status_code,
             content={
                 "error": {
-                    "code": exc.code, "message": exc.message,
-                    "request_id": request_id_var.get(), "detail": exc.detail,
+                    "code": exc.code,
+                    "message": exc.message,
+                    "request_id": request_id_var.get(),
+                    "detail": exc.detail,
                 }
             },
         )

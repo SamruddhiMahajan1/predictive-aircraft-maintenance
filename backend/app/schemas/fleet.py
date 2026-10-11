@@ -1,4 +1,5 @@
 """Fleet read schemas — the exact response contracts of docs/06 §2."""
+
 from __future__ import annotations
 
 from datetime import datetime

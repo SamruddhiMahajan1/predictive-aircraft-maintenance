@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { ctx } from '../context.js';
 import { mm, mkPart } from '../helpers.js';
-import { sfTags, sfHalos } from '../subFaults.js';
+import { sfTags, sfHalos } from '../subFaults.jsx';
 
 // Hydraulics: procedural pump, actuator rod and animated fluid lines (the original used stand-in geometry too).
 

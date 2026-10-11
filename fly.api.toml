@@ -64,7 +64,6 @@ primary_region = "sin"          # Singapore — change to match your Fly Postgre
 
 # ── Secrets (NEVER put real values here — use `fly secrets set`) ─────────────
 # fly secrets set --app fdt-api \
-#   FDT_JWT_SECRET="$(openssl rand -hex 32)" \
 #   FDT_DATABASE_URL="postgresql+psycopg://user:pass@host/dbname"
 
 [[http_service]]

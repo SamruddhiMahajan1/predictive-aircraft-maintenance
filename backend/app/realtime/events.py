@@ -1,4 +1,5 @@
 """WebSocket event schemas — spec item 42."""
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -16,25 +17,36 @@ class Event(BaseModel):
     ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
     def envelope(self, seq: int | None = None) -> dict:
-        return {"type": self.type, "payload": self.payload, "seq": seq,
-                "ts": self.ts.isoformat()}
+        return {"type": self.type, "payload": self.payload, "seq": seq, "ts": self.ts.isoformat()}
 
 
 # ── server → client ────────────────────────────────────────────────────────────
 def connection_ready(aircraft: int, demo_mode: bool, tick: float) -> Event:
-    return Event(type="connection.ready", payload={
-        "aircraft": aircraft, "demo_mode": demo_mode, "tick_seconds": tick,
-        "protocol_version": PROTOCOL_VERSION,
-    })
+    return Event(
+        type="connection.ready",
+        payload={
+            "aircraft": aircraft,
+            "demo_mode": demo_mode,
+            "tick_seconds": tick,
+            "protocol_version": PROTOCOL_VERSION,
+        },
+    )
 
 
 def cycle_tick(cycle: int) -> Event:
     return Event(type="cycle.tick", payload={"cycle": cycle})
 
 
-def health_updated(aircraft: str, aircraft_id: int, part: str,
-                   health: float, risk: str, rul: int | None, cycle: int,
-                   model: dict[str, Any] | None = None) -> Event:
+def health_updated(
+    aircraft: str,
+    aircraft_id: int,
+    part: str,
+    health: float,
+    risk: str,
+    rul: int | None,
+    cycle: int,
+    model: dict[str, Any] | None = None,
+) -> Event:
     """`model` carries the per-prediction provenance from `inference.predict`.
 
     A per-tick fallback (a rejected window, a failed inference) leaves the model
@@ -42,8 +54,13 @@ def health_updated(aircraft: str, aircraft_id: int, part: str,
     learn that *this* number came from `rul = 125 - cycle` instead of the booster.
     """
     payload: dict[str, Any] = {
-        "aircraft": aircraft, "aircraft_id": aircraft_id, "part": part,
-        "health": health, "risk": risk, "rul": rul, "cycle": cycle,
+        "aircraft": aircraft,
+        "aircraft_id": aircraft_id,
+        "part": part,
+        "health": health,
+        "risk": risk,
+        "rul": rul,
+        "cycle": cycle,
     }
     if model is not None:
         payload["model"] = {

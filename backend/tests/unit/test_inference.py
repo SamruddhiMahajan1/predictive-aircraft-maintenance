@@ -1,4 +1,5 @@
 """Inference, attribution and fallback — the ML layer with and without an artifact."""
+
 from __future__ import annotations
 
 import pytest
@@ -9,15 +10,32 @@ from app.ml.attribution import deviation_scores, top_sensors, z_scores
 from app.ml.features import FEATURE_ORDER, SENSORS
 from app.ml.inference import component_health, predict
 
-SPEC_14 = ["s2", "s3", "s4", "s7", "s8", "s9", "s11", "s12",
-           "s13", "s14", "s15", "s17", "s20", "s21"]
+SPEC_14 = [
+    "s2",
+    "s3",
+    "s4",
+    "s7",
+    "s8",
+    "s9",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s17",
+    "s20",
+    "s21",
+]
 
 
 def row(cycle: int, **overrides) -> dict:
     sensors = {s: 100.0 + i for i, s in enumerate(SENSORS) if s != "s6"}
     sensors.update(overrides)
-    return {"cycle": cycle, "settings": {"setting_1": 0.0, "setting_2": 0.0,
-                                         "setting_3": 100.0}, "sensors": sensors}
+    return {
+        "cycle": cycle,
+        "settings": {"setting_1": 0.0, "setting_2": 0.0, "setting_3": 100.0},
+        "sensors": sensors,
+    }
 
 
 def window(size: int = 30, **overrides) -> list[dict]:
@@ -25,9 +43,7 @@ def window(size: int = 30, **overrides) -> list[dict]:
 
 
 # ── fallback (spec 46/47 with no artifact) ─────────────────────────────────────
-@pytest.mark.parametrize(
-    "cycle,expected", [(1, 124), (10, 115), (124, 1), (125, 0), (200, 0)]
-)
+@pytest.mark.parametrize("cycle,expected", [(1, 124), (10, 115), (124, 1), (125, 0), (200, 0)])
 def test_fallback_rul_is_the_degradation_curve(cycle, expected):
     assert fallback.fallback_rul(cycle) == expected
 
@@ -68,9 +84,58 @@ def test_fallback_response_is_flagged_and_bounded():
 
 
 def test_predict_rejects_a_short_window_without_crashing():
-    result = predict([row(1)], current_cycle=1)
+    """A window too short to carry a rolling statistic is rejected, not crashed on.
+
+    The handle is forced rather than assumed: an artifact may or may not be staged
+    depending on what earlier tests loaded, and a test that depended on the ambient
+    singleton passed or failed by accident.
+    """
+    from app.ml import model_store as ms
+
+    previous = ms._handle
+    ms._handle = ms.ModelHandle(ready=False, error="forced: no artifact")
+    try:
+        result = predict([row(1)], current_cycle=1)
+    finally:
+        ms._handle = previous
+    assert result["model"]["fallback"] is True
+    # With no model loaded the reason is the artifact, not the window: `predict` checks
+    # its own state before it looks at the caller's request (see the test below).
+    assert result["model"]["reason"] == "artifact_missing"
+
+
+def test_predict_rejects_a_short_window_when_the_model_is_loaded():
+    from app.ml import model_store as ms
+
+    previous = ms._handle
+    ms._handle = ms.ModelHandle(booster=_stub_booster(), ready=True)
+    try:
+        result = predict([row(1)], current_cycle=1)
+    finally:
+        ms._handle = previous
     assert result["model"]["fallback"] is True
     assert result["model"]["reason"].startswith("window_rejected:")
+
+
+def _stub_booster(n_features: int | None = None):
+    """A minimal trained booster, so `ready=True` is actually reachable in a unit test.
+
+    `ModelHandle.ready` and `ModelHandle.booster` are separate fields, so a handle can
+    claim to be ready with nothing to predict through. `predict` checks both, and the
+    tests below need a handle that passes both to reach the code under test.
+
+    Trained via `xgboost.train` rather than `Booster.fit`, which xgboost 3 removed.
+    """
+    import numpy as np
+    import xgboost as xgb
+
+    n = n_features or len(FEATURE_ORDER)
+    dtrain = xgb.DMatrix(np.zeros((4, n), dtype=np.float32), label=np.zeros(4, dtype=np.float32))
+    return xgb.train(
+        {"objective": "reg:squarederror", "max_depth": 1, "verbosity": 0},
+        dtrain,
+        num_boost_round=1,
+    )
 
 
 def test_predict_reports_a_missing_baseline_distinctly_from_a_short_window():
@@ -78,15 +143,23 @@ def test_predict_reports_a_missing_baseline_distinctly_from_a_short_window():
 
     A pooled contract asked for a subset its baselines do not cover used to report
     "short_window", which points at the window rather than at the artifact lookup.
+
+    The handle is given a real (if trivial) booster, because `ready=True` alone is not
+    enough to reach the baseline lookup: `predict` checks `booster is None` before it
+    builds a matrix, so a booster-less handle correctly reports `artifact_missing`
+    instead -- which is itself the behaviour the test below pins.
     """
     from app.ml import model_store as ms
 
     previous = ms._handle
     ms._handle = ms.ModelHandle(
-        contract={"subsets": ["FD001", "FD004"], "requires_scaler": False,
-                  "feature_order": list(FEATURE_ORDER)},
-        stats={"baselines": {"FD001": {"0": {s: {"median": 1.0, "mad": 1.0}
-                                                for s in SENSORS}}}},
+        contract={
+            "subsets": ["FD001", "FD004"],
+            "requires_scaler": False,
+            "feature_order": list(FEATURE_ORDER),
+        },
+        stats={"baselines": {"FD001": {"0": {s: {"median": 1.0, "mad": 1.0} for s in SENSORS}}}},
+        booster=_stub_booster(),
         ready=True,
     )
     try:
@@ -95,6 +168,37 @@ def test_predict_reports_a_missing_baseline_distinctly_from_a_short_window():
         ms._handle = previous
     assert result["model"]["fallback"] is True
     assert "no baseline block for subset='FD003'" in result["model"]["reason"]
+
+
+def test_predict_reports_a_missing_artifact_before_a_window_problem():
+    """`artifact_missing` is the most important diagnostic here, so it must win.
+
+    The check used to run *after* the feature build, and `z_scorer()` raises when no
+    baseline block exists -- so a server with no model loaded reported
+    `window_rejected: no baseline block ...`, pointing the operator at the caller's
+    request instead of at their own missing artifact. Both failures are present here
+    (the window is one cycle, and there is no booster), so the ordering is what is
+    under test rather than one condition masking the other.
+    """
+    from app.ml import model_store as ms
+
+    previous = ms._handle
+    ms._handle = ms.ModelHandle(
+        contract={
+            "subsets": ["FD001"],
+            "requires_scaler": False,
+            "feature_order": list(FEATURE_ORDER),
+        },
+        stats={},
+        booster=None,
+        ready=False,
+    )
+    try:
+        result = predict([row(1)], current_cycle=1)
+    finally:
+        ms._handle = previous
+    assert result["model"]["fallback"] is True
+    assert result["model"]["reason"] == "artifact_missing"
 
 
 def test_predict_handles_an_empty_window():
@@ -118,14 +222,13 @@ def test_predict_reports_weakest_component():
 
 
 # ── attribution (spec 46) ──────────────────────────────────────────────────────
-STATS = {"regime_0": {s: {"median": 100.0 + i, "mad": 1.0}
-                      for i, s in enumerate(SENSORS)}}
+STATS = {"regime_0": {s: {"median": 100.0 + i, "mad": 1.0} for i, s in enumerate(SENSORS)}}
 
 
 def test_z_scores_are_robust_to_the_baseline():
     median = STATS["regime_0"]["s11"]["median"]
     window_rows = window(5)
-    window_rows[-1]["sensors"]["s11"] = median + 3.0     # median + 3 MAD
+    window_rows[-1]["sensors"]["s11"] = median + 3.0  # median + 3 MAD
     z = z_scores(window_rows, STATS)
     assert z["s11"] == pytest.approx(3.0)
 
@@ -170,10 +273,13 @@ def test_component_health_groups_cover_every_assigned_sensor():
     """s9 was added to hpc: highest end-of-life deviation (mean |z| 8.0) and 7.8% of
     the model's gain, previously unassigned."""
     assert COMPONENT_SENSOR_MAP == {
-        "fan": ["s8", "s13"], "hpc": ["s3", "s7", "s9", "s11"],
-        "hpt": ["s20", "s21"], "lpt": ["s4"],
+        "fan": ["s8", "s13"],
+        "hpc": ["s3", "s7", "s9", "s11"],
+        "hpt": ["s20", "s21"],
+        "lpt": ["s4"],
     }
     from app.domain.rules import UNASSIGNED_SENSORS
+
     # every sensor is either assigned to exactly one component or explicitly unassigned
     assigned = [s for v in COMPONENT_SENSOR_MAP.values() for s in v]
     assert len(assigned) == len(set(assigned)), "a sensor is in two components"
@@ -202,12 +308,14 @@ def test_component_health_only_uses_assigned_sensors():
 def test_component_health_reads_full_health_at_the_measured_healthy_anchor():
     """The old divisor of 3.0 scored a healthy engine at 0.62."""
     from app.ml.inference import Z_HEALTHY_ANCHOR
+
     out = component_health(dict.fromkeys(SENSORS, Z_HEALTHY_ANCHOR))
     assert min(out.values()) == pytest.approx(1.0, abs=1e-3)
 
 
 def test_component_health_reaches_zero_at_the_measured_eol_anchor():
     from app.ml.inference import Z_EOL_ANCHOR
+
     out = component_health(dict.fromkeys(SENSORS, Z_EOL_ANCHOR))
     assert max(out.values()) == pytest.approx(0.0, abs=1e-3)
 
@@ -222,6 +330,4 @@ def test_component_health_is_monotonic_in_deviation():
 
 
 def test_component_health_with_no_z_is_healthy():
-    assert component_health({}) == pytest.approx(
-        {"fan": 1.0, "hpc": 1.0, "hpt": 1.0, "lpt": 1.0}
-    )
+    assert component_health({}) == pytest.approx({"fan": 1.0, "hpc": 1.0, "hpt": 1.0, "lpt": 1.0})

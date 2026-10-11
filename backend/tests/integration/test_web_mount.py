@@ -10,6 +10,7 @@ broken rather than misconfigured.
 
 So the tests below pin the ordering, not just the presence of the mount.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -49,7 +50,8 @@ def _static_mounts(routes) -> list[str]:
     silently asserts against an always-empty list.
     """
     return [
-        route.path for route in routes
+        route.path
+        for route in routes
         if isinstance(route, Mount) and isinstance(route.app, StaticFiles)
     ]
 
@@ -74,9 +76,7 @@ def web_client(dist, database, monkeypatch):
     `database` migrates and seeds; without it the fleet assertion below would hit a
     schema that does not exist.
     """
-    monkeypatch.setattr(
-        "app.main.get_settings", lambda: Settings(web_dist=dist, demo_mode=False)
-    )
+    monkeypatch.setattr("app.main.get_settings", lambda: Settings(web_dist=dist, demo_mode=False))
     with TestClient(create_app()) as client:
         # Lifespan yields before the background init finishes; /healthz reports
         # `starting` until then. Wait for the real verdict like production does.
@@ -98,8 +98,8 @@ def web_client(dist, database, monkeypatch):
 def bare_client(tmp_path, database, monkeypatch):
     """The identical app with no bundle — the Compose shape, and the control case."""
     monkeypatch.setattr(
-        "app.main.get_settings",
-        lambda: Settings(web_dist=tmp_path / "absent", demo_mode=False))
+        "app.main.get_settings", lambda: Settings(web_dist=tmp_path / "absent", demo_mode=False)
+    )
     with TestClient(create_app()) as client:
         yield client
 
@@ -140,13 +140,14 @@ def test_3d_assets_skip_gzip_but_json_keeps_it(web_client):
 @pytest.mark.parametrize(
     "path",
     [
-        "/healthz",          # Render's healthCheckPath
+        "/healthz",  # Render's healthCheckPath
         "/readyz",
-        "/openapi.json",     # registered in FastAPI.__init__, before any mount
+        "/openapi.json",  # registered in FastAPI.__init__, before any mount
         "/docs",
         "/api/v1/fleet/summary",
         "/api/v1/fleet",
-    ])
+    ],
+)
 def test_api_routes_are_not_shadowed(web_client, bare_client, path):
     """The mount must not change how any API path answers.
 
@@ -174,7 +175,8 @@ def test_websocket_route_is_still_registered(web_client):
     `/ws`, and a WebSocketRoute still in the tree is the proof.
     """
     paths = {
-        route.path for route in _flatten(web_client.app.routes)
+        route.path
+        for route in _flatten(web_client.app.routes)
         if isinstance(route, APIWebSocketRoute)
     }
     assert "/ws/fleet" in paths
@@ -182,9 +184,7 @@ def test_websocket_route_is_still_registered(web_client):
 
 def test_api_routes_reachable_in_the_route_tree(web_client):
     """Every API path survives in the route table alongside the web build."""
-    paths = {
-        route.path for route in _flatten(web_client.app.routes) if isinstance(route, Route)
-    }
+    paths = {route.path for route in _flatten(web_client.app.routes) if isinstance(route, Route)}
     for expected in ("/healthz", "/readyz", "/api/v1/fleet/summary", "/openapi.json"):
         assert expected in paths, f"{expected} is missing from the route tree"
 
@@ -233,17 +233,20 @@ def test_shell_route_follows_the_api_routers(web_client):
     """
     routes = list(web_client.app.routes)
     shell = next(
-        (i for i, r in enumerate(routes)
-         if isinstance(r, Route) and r.path == "/" and r.name == "web_index"),
-        None)
+        (
+            i
+            for i, r in enumerate(routes)
+            if isinstance(r, Route) and r.path == "/" and r.name == "web_index"
+        ),
+        None,
+    )
     assert shell is not None, "the web shell route is missing"
 
     last_router = max(
-        (i for i, r in enumerate(routes) if type(r).__name__ == "_IncludedRouter"),
-        default=-1)
+        (i for i, r in enumerate(routes) if type(r).__name__ == "_IncludedRouter"), default=-1
+    )
     assert shell > last_router, (
-        f"the web shell is at {shell}, at or before the API routers (last at "
-        f"{last_router})"
+        f"the web shell is at {shell}, at or before the API routers (last at {last_router})"
     )
 
 

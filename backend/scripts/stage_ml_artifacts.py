@@ -14,6 +14,7 @@ set is discovered from the contract rather than guessed — the same way model_s
 Copying an extra file is harmless; copying a mismatched pair is not, which is why
 `_validate` refuses to stage a booster whose feature count disagrees with the contract.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -100,8 +101,7 @@ def _validate(booster_path: Path, contract: dict) -> int:
     order = list(contract.get("feature_order") or [])
     if order and len(order) != declared:
         raise SystemExit(
-            f"refusing to stage: feature_order lists {len(order)} names, "
-            f"n_features says {declared}"
+            f"refusing to stage: feature_order lists {len(order)} names, n_features says {declared}"
         )
     return actual
 
@@ -131,8 +131,10 @@ def stage(source: Path, variant: str, *, dry_run: bool = False) -> list[Path]:
         if (source / derived).is_file():
             names.append(derived)
         else:
-            print(f"  note: {derived} not found — the model will load but report "
-                  "mae: null until the notebook is re-run")
+            print(
+                f"  note: {derived} not found — the model will load but report "
+                "mae: null until the notebook is re-run"
+            )
 
     dest = settings.ml_dir
     staged: list[Path] = []
@@ -142,7 +144,7 @@ def stage(source: Path, variant: str, *, dry_run: bool = False) -> list[Path]:
         staged.append(target)
         print(f"  {name:<44} {src_file.stat().st_size / 1e3:8.1f} KB")
         if dry_run or src_file == target.resolve():
-            continue        # already staged here; re-running must be a no-op, not a crash
+            continue  # already staged here; re-running must be a no-op, not a crash
         dest.mkdir(parents=True, exist_ok=True)
         shutil.copy2(src_file, target)
 
@@ -156,13 +158,22 @@ def stage(source: Path, variant: str, *, dry_run: bool = False) -> list[Path]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--source", required=True, type=Path,
-                        help="directory holding the notebook's artifacts, e.g. the "
-                             "Drive path .../Project2/cmapss/models/multi")
-    parser.add_argument("--variant", default="full", choices=VARIANTS,
-                        help="which ml_variant the files are for (default: full)")
-    parser.add_argument("--dry-run", action="store_true",
-                        help="list what would be copied without writing")
+    parser.add_argument(
+        "--source",
+        required=True,
+        type=Path,
+        help="directory holding the notebook's artifacts, e.g. the "
+        "Drive path .../Project2/cmapss/models/multi",
+    )
+    parser.add_argument(
+        "--variant",
+        default="full",
+        choices=VARIANTS,
+        help="which ml_variant the files are for (default: full)",
+    )
+    parser.add_argument(
+        "--dry-run", action="store_true", help="list what would be copied without writing"
+    )
     args = parser.parse_args()
 
     settings = Settings(ml_variant=args.variant)

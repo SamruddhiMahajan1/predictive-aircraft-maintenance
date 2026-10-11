@@ -1,4 +1,5 @@
 """Write-path schemas — work orders, spares, agencies, alerts, telemetry, ML."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -171,7 +172,7 @@ class SettingsIn(BaseModel):
 class TelemetryRow(BaseModel):
     cycle: int = Field(ge=1)
     settings: SettingsIn
-    sensors: dict[str, float]   # the 14 spec sensors; s6 optional
+    sensors: dict[str, float]  # the 14 spec sensors; s6 optional
 
 
 class TelemetryBatch(BaseModel):
@@ -251,7 +252,15 @@ class DemoStatus(BaseModel):
     running: bool
     paused: bool
     tick: int
+    # `interval_seconds` is the CONFIGURED period. These four are what the engine
+    # actually achieved, and they were absent -- a response_model silently strips any
+    # field it does not declare, so adding them to `ReplayEngine.status()` alone would
+    # have had no effect on the endpoint an operator reads.
     interval_seconds: float
+    last_tick_ms: float | None = None
+    achieved_interval_seconds: float | None = None
+    drift_pct: float | None = None
+    consecutive_failures: int = 0
     cmapss_loaded: bool
     units: int
     subscribers: int

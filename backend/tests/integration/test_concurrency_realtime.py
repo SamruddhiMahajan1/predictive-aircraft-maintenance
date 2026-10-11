@@ -1,4 +1,5 @@
 """Concurrency (spec 37/38) and the realtime protocol (spec 42/43)."""
+
 from __future__ import annotations
 
 import threading
@@ -10,16 +11,12 @@ from app.models.maintenance import Agency, AgencyBooking, Spare, StockMovement
 
 
 def _set_stock(client, part_ref_id, stock):
-    return client.patch(f"/api/v1/spares/{part_ref_id}",
-                        json={"stock": stock, "reason": "adjust"})
+    return client.patch(f"/api/v1/spares/{part_ref_id}", json={"stock": stock, "reason": "adjust"})
 
 
 # ── 37 no oversell under concurrent reservations ───────────────────────────────
 def test_twenty_concurrent_reservations_never_oversell(client, db):
-    spare_ref = next(
-        i["part_ref_id"] for i in
-        client.get("/api/v1/spares").json()["items"]
-    )
+    spare_ref = next(i["part_ref_id"] for i in client.get("/api/v1/spares").json()["items"])
     _set_stock(client, spare_ref, 1)
 
     results: list[int] = []
@@ -43,15 +40,14 @@ def test_twenty_concurrent_reservations_never_oversell(client, db):
 
 
 def test_concurrent_reservations_record_one_movement_each(client, db):
-    spare_ref = next(
-        i["part_ref_id"] for i in
-        client.get("/api/v1/spares").json()["items"]
-    )
+    spare_ref = next(i["part_ref_id"] for i in client.get("/api/v1/spares").json()["items"])
     _set_stock(client, spare_ref, 3)
     spare_id = db.query(Spare).filter(Spare.part_ref_id == spare_ref).one().id
-    before = db.query(StockMovement).filter(
-        StockMovement.spare_id == spare_id, StockMovement.reason == "reserve"
-    ).count()
+    before = (
+        db.query(StockMovement)
+        .filter(StockMovement.spare_id == spare_id, StockMovement.reason == "reserve")
+        .count()
+    )
 
     def reserve() -> None:
         client.post(f"/api/v1/spares/{spare_ref}/reserve", json={})
@@ -63,10 +59,12 @@ def test_concurrent_reservations_record_one_movement_each(client, db):
         t.join()
 
     db.expire_all()
-    reserves = db.query(StockMovement).filter(
-        StockMovement.spare_id == spare_id,
-        StockMovement.reason == "reserve").count()
-    assert reserves - before == 3   # exactly the stock that existed
+    reserves = (
+        db.query(StockMovement)
+        .filter(StockMovement.spare_id == spare_id, StockMovement.reason == "reserve")
+        .count()
+    )
+    assert reserves - before == 3  # exactly the stock that existed
 
 
 # ── 38 concurrent bookings ────────────────────────────────────────────────────
@@ -76,8 +74,10 @@ def test_concurrent_bookings_all_succeed_while_slots_remain(client, db):
     lock = threading.Lock()
 
     def book() -> None:
-        code = client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                           json={"aircraft": "Fighter-01", "part": "engine"}).status_code
+        code = client.post(
+            f"/api/v1/agencies/{agency.id}/bookings",
+            json={"aircraft": "Fighter-01", "part": "engine"},
+        ).status_code
         with lock:
             results.append(code)
 
@@ -93,15 +93,16 @@ def test_concurrent_bookings_all_succeed_while_slots_remain(client, db):
     assert set(results) <= {201, 409}, results
     db.expire_all()
     assert db.query(Agency).filter(Agency.id == agency.id).one().free_slot_days >= 0
-    assert (db.query(AgencyBooking).filter(
+    assert db.query(AgencyBooking).filter(
         AgencyBooking.agency_id == agency.id, AgencyBooking.completed_at.is_(None)
-    ).count() == results.count(201))
+    ).count() == results.count(201)
 
 
 def test_each_booking_is_audited_with_its_eta(client, db):
     agency = db.query(Agency).first()
-    client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                json={"aircraft": "Fighter-04", "part": "radar"})
+    client.post(
+        f"/api/v1/agencies/{agency.id}/bookings", json={"aircraft": "Fighter-04", "part": "radar"}
+    )
     rows = db.query(AuditLog).filter(AuditLog.entity == "agency").all()
     assert rows
     assert all("eta_date" in row.after for row in rows)
@@ -113,8 +114,9 @@ def test_booking_free_slot_is_monotonically_non_increasing(client, db):
     agency = db.query(Agency).filter(Agency.turnaround_days == 24).one()
     previous = agency.free_slot_days
     for code in ("Fighter-05", "Fighter-06", "Fighter-07"):
-        client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                    json={"aircraft": code, "part": "gear"})
+        client.post(
+            f"/api/v1/agencies/{agency.id}/bookings", json={"aircraft": code, "part": "gear"}
+        )
         db.expire_all()
         current = db.query(Agency).filter(Agency.id == agency.id).one().free_slot_days
         assert current <= previous, f"{previous} -> {current} must not increase"
@@ -132,7 +134,7 @@ def test_websocket_sends_connection_ready(client):
 
 def test_websocket_answers_ping_with_pong(client):
     with client.websocket_connect("/ws/fleet") as ws:
-        ws.receive_json()                       # connection.ready
+        ws.receive_json()  # connection.ready
         ws.send_json({"type": "ping", "payload": {}})
         assert ws.receive_json()["type"] == "pong"
 
@@ -181,14 +183,14 @@ def test_a_malformed_frame_does_not_take_the_connection_down(client):
     ones must be too.
     """
     with client.websocket_connect("/ws/fleet") as ws:
-        ws.receive_json()                                  # connection.ready
+        ws.receive_json()  # connection.ready
         ws.send_text("this is not json")
         ws.send_text("{also not json")
-        ws.send_json({"type": "no-such-type", "payload": {}})   # unknown type: already ok
+        ws.send_json({"type": "no-such-type", "payload": {}})  # unknown type: already ok
 
         # Still usable afterwards.
         ws.send_json({"type": "ping", "payload": {}})
-        for _ in range(50):                               # bounded: must not hang
+        for _ in range(50):  # bounded: must not hang
             message = ws.receive_json()
             if message["type"] == "pong":
                 break
@@ -229,8 +231,7 @@ def test_a_filter_does_not_swallow_fleet_wide_events(client):
 
     with client.websocket_connect("/ws/fleet") as ws:
         ws.receive_json()
-        ws.send_json({"type": "subscribe",
-                      "payload": {"aircraft": ["Fighter-01"]}})
+        ws.send_json({"type": "subscribe", "payload": {"aircraft": ["Fighter-01"]}})
 
         bus.publish_soon(spare_reserved({"part_ref_id": 1, "stock_remaining": 4}))
         for _ in range(80):
@@ -242,9 +243,7 @@ def test_a_filter_does_not_swallow_fleet_wide_events(client):
             pytest.fail("a fleet-wide event was dropped by an aircraft filter")
 
 
-def test_a_slow_consumer_is_closed_with_1013_instead_of_left_on_a_dead_socket(
-    client, monkeypatch
-):
+def test_a_slow_consumer_is_closed_with_1013_instead_of_left_on_a_dead_socket(client, monkeypatch):
     """The regression that mattered: an overflowed socket must be cut off, not abandoned.
 
     Overflow used to discard the queue from the fan-out and nothing else. `drain()` then
@@ -263,10 +262,10 @@ def test_a_slow_consumer_is_closed_with_1013_instead_of_left_on_a_dead_socket(
 
     with pytest.raises(WebSocketDisconnect) as exc:
         with client.websocket_connect("/ws/fleet") as ws:
-            ws.receive_json()                      # connection.ready
-            for _ in range(5):                    # never read these
+            ws.receive_json()  # connection.ready
+            for _ in range(5):  # never read these
                 bus.publish_soon(cycle_tick(1))
-            while True:                           # now start reading: expect the close
+            while True:  # now start reading: expect the close
                 ws.receive_json()
 
     assert exc.value.code == 1013, "overflow must close, not strand"
