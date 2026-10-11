@@ -1,4 +1,5 @@
 """Scheduling arithmetic — back-in-service, do-by dates, agency slots. Pure."""
+
 from __future__ import annotations
 
 import math
@@ -42,7 +43,10 @@ def back_in_service_breakdown(
 
 
 def eta_date(
-    slot_days: int, turnaround_days: int, lead_time_days: int, stock: int,
+    slot_days: int,
+    turnaround_days: int,
+    lead_time_days: int,
+    stock: int,
     start: date | None = None,
 ) -> date:
     breakdown = back_in_service_breakdown(slot_days, turnaround_days, lead_time_days, stock)
@@ -62,5 +66,3 @@ def cycles_to_date(
 def part_agency_assignment(specialisation_map: dict[str, str], code: str) -> str | None:
     """Resolve a part to its agency specialisation key."""
     return specialisation_map.get(code)
-
-

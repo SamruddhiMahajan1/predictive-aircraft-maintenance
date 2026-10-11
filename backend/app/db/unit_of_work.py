@@ -5,6 +5,7 @@ Guarantees (docs/02 §5.2, spec 51):
   * pessimistic row locks for stock and agency slots
   * `as_of()` gives handlers the timestamp to stamp on denormalised columns
 """
+
 from __future__ import annotations
 
 import enum
@@ -97,9 +98,4 @@ class UnitOfWork:
 
     def lock(self, model: type, pk: Any) -> Any | None:
         """SELECT ... FOR UPDATE — used by spare reserve and agency booking."""
-        return (
-            self.session.query(model)
-            .filter(model.id == pk)
-            .with_for_update()
-            .one_or_none()
-        )
+        return self.session.query(model).filter(model.id == pk).with_for_update().one_or_none()

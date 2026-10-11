@@ -1,17 +1,17 @@
-import { useStore } from '../state/useStore.js';
+import { selectFleetStats, selectFleet } from '../state/useStore.js';
 import { selectAircraft } from '../state/store.js';
 import { fleet } from '../data/fleet.js';
 import { PARTS, KEYS } from '../data/parts.js';
 import { C, hc } from '../lib/colors.js';
 import { rul, ready, ph, worst } from '../lib/health.js';
-import { fleetStats, pc } from '../lib/fleetStats.js';
+import { pc } from '../lib/fleetStats.js';
 
 // "Parts status" stacked bar + average health per subsystem.
 //
 // The bar counts come from /fleet/summary's risk_breakdown, so the total matches the
 // critical-parts KPI instead of being recounted from the client's own thresholds.
 function PartsMix() {
-  const { partsMix } = fleetStats();
+  const { partsMix } = selectFleetStats();
   const { healthy, watch, critical, total } = partsMix;
   const rows = KEYS.map((k) => {
     let sum = 0, n = 0, cr = 0;
@@ -53,8 +53,8 @@ function PartsMix() {
 }
 
 export default function FleetHealth() {
-  const app = useStore();
-  const { n, nr } = fleetStats();
+  const sel = selectFleet();
+  const { n, nr } = selectFleetStats();
   return (
     <section className="pn s5 rv" id="health">
       <div className="hd"><h2>Fleet health</h2><p>Engine life left, per aircraft</p></div>
@@ -75,7 +75,7 @@ export default function FleetHealth() {
               return (
                 <button
                   key={e.id}
-                  className={'vb ' + (i == app.sel ? 'on' : '')}
+                  className={'vb ' + (i == sel ? 'on' : '')}
                   data-i={i}
                   data-tip={
                     e.id +

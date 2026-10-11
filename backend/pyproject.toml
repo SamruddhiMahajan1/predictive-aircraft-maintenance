@@ -17,6 +17,10 @@ dependencies = [
   "psycopg[binary]>=3.2",
   "xgboost>=2.1",
   "numpy>=1.26",
+  # The feature contract, imported by app/ml/features.py. Installed from ../ml at
+  # build time -- see docker/backend/Dockerfile. `rul.contract` is pure standard
+  # library; numpy/xgboost above are its runtime siblings, already present regardless.
+  "rul",
 ]
 
 [project.optional-dependencies]
@@ -47,7 +51,7 @@ plugins = []
 exclude = ["alembic/versions"]
 
 [[tool.mypy.overrides]]
-module = ["xgboost.*", "numpy.*", "passlib.*"]
+module = ["xgboost.*", "numpy.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

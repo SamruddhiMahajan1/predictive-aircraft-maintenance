@@ -1,15 +1,15 @@
 """RUL and component-health inference (docs/08 §6)."""
+
 from __future__ import annotations
 
 import time
 from typing import Any
 
 from ..core.config import Settings, get_settings
-from ..core.errors import BusinessRuleError
 from ..domain.rules import COMPONENT_SENSOR_MAP, RUL_CAP, cap_rul, engine_spare
 from . import fallback, model_store
 from .attribution import deviation_scores, top_sensors, z_scores
-from .features import FEATURE_ORDER, build_window
+from .features import FEATURE_ORDER, ContractError, build_window
 
 # Component health is anchored at BOTH ends, measured on real FD001 telemetry rather
 # than assumed. The previous single divisor (3.0) was wrong: healthy engines already
@@ -24,8 +24,7 @@ Z_HEALTHY_ANCHOR = 1.15
 Z_EOL_ANCHOR = 5.30
 
 
-def _classify(window: list[dict[str, Any]], h: model_store.ModelHandle,
-              subset: str | None) -> int:
+def _classify(window: list[dict[str, Any]], h: model_store.ModelHandle, subset: str | None) -> int:
     """Nearest-centroid regime for the latest cycle. 0 when no centroids are shipped."""
     from .features import classify_regime
 
@@ -62,9 +61,16 @@ def predict(
     local_regime = _classify(window, h, subset) if regime is None else regime
     regime_global = local_regime + h.regime_offset(subset)
 
-    # Request validation happens before the artifact check on purpose: a window that
-    # is too short is a 422 regardless of whether a model is loaded, and the caller
-    # needs to hear about its own malformed request rather than about our state.
+    # Artifact state is checked FIRST. It used to be checked after the feature build,
+    # and `h.z_scorer()` raises when there is no baseline block -- so a server with no
+    # model loaded reported `window_rejected: no baseline block for ...` instead of
+    # `artifact_missing`. The single most important diagnostic in this file pointed at
+    # the caller's request rather than at our own missing artifact.
+    if not h.ready or h.booster is None:
+        return _fallback_result(cycle, started, fallback_on="artifact_missing")
+
+    # Request validation happens second: a window that is too short is the caller's
+    # problem, and reporting it as such matters more than checking it first.
     try:
         matrix, imputed = build_window(
             window,
@@ -78,18 +84,15 @@ def predict(
             # healthy median instead of left out (which misaligns the matrix).
             missing_sensor_values=h.missing_sensor_defaults(subset),
         )
-    except BusinessRuleError as exc:
+    except ContractError as exc:
         # A rejected window (too short, or no baseline block for the subset) is the
         # caller's problem and is reported as such. Anything else is a broken baseline
-        # lookup — reporting that as "short_window" sent debugging in the wrong
+        # lookup -- reporting that as "short_window" sent debugging in the wrong
         # direction entirely.
         return _fallback_result(cycle, started, fallback_on=f"window_rejected:{exc}")
     except Exception as exc:  # noqa: BLE001 — short window falls back
         model_store.log.warning("feature build failed (%s); using fallback", exc)
         return _fallback_result(cycle, started, fallback_on="short_window")
-
-    if not h.ready or h.booster is None:
-        return _fallback_result(cycle, started, fallback_on="artifact_missing")
 
     try:
         prediction = h.predict(matrix)[-1]
@@ -125,7 +128,14 @@ def predict(
             "mae": h.mae,
             # the refit has no holdout, so the headline number is a CV RMSE
             "mae_is_cv": h.mae_is_cv,
-            "s6_imputed": imputed,
+            # Which sensors were filled rather than measured. This was a single bool
+            # that read `true` on essentially every request -- s6 is absent from the
+            # API spec's 14-sensor payload and s10/s16 are constant in FD001 -- so the
+            # documented "omitting sensor_6 costs accuracy" signal could never appear.
+            # A list makes the distinction between an expected fill (s10/s16) and a
+            # real one (s6 missing from the payload) visible to a caller.
+            "s6_imputed": "s6" in imputed,
+            "imputed_sensors": sorted(imputed),
             # which baselines block answered, and which regime it was. Reported because
             # a pooled contract silently resolving to the wrong block is invisible
             # otherwise — the prediction still looks entirely reasonable.
@@ -185,8 +195,9 @@ def _fallback_result(cycle: int, started: float, *, fallback_on: str) -> dict[st
             "mae": None,
             "mae_is_cv": False,
             "s6_imputed": False,
+            "imputed_sensors": [],
             "fallback": True,
-            "degraded": True,       # never guess quietly (docs/14 §9)
+            "degraded": True,  # never guess quietly (docs/14 §9)
             "reason": fallback_on,
         },
         "latency_ms": round((time.perf_counter() - started) * 1000, 2),

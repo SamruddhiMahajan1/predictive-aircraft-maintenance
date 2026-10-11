@@ -1,4 +1,5 @@
 """Health derivation — engine from RUL, non-engine from maintenance burden."""
+
 from __future__ import annotations
 
 import pytest
@@ -67,13 +68,12 @@ def test_burden_handles_zero_p95():
 def test_snags_contribute_weighted_by_severity():
     critical = [{"severity": "Critical", "age_months": 1.0}]
     minor = [{"severity": "Minor", "age_months": 1.0}]
-    assert (maintenance_burden([], critical, "engine", 1.0)
-            > maintenance_burden([], minor, "engine", 1.0))
+    assert maintenance_burden([], critical, "engine", 1.0) > maintenance_burden(
+        [], minor, "engine", 1.0
+    )
 
 
-@pytest.mark.parametrize(
-    "score,expected", [(0.0, 1.0), (0.5, 0.5), (1.0, 0.05), (2.0, 0.05)]
-)
+@pytest.mark.parametrize("score,expected", [(0.0, 1.0), (0.5, 0.5), (1.0, 0.05), (2.0, 0.05)])
 def test_burden_health_inverse_and_floored(score, expected):
     assert burden_health(score) == pytest.approx(expected)
 

@@ -1,4 +1,4 @@
-import { Fragment, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useLayoutEffect, useRef, useState, useMemo } from 'react';
 import { useStore } from '../state/useStore.js';
 import { fleet } from '../data/fleet.js';
 import { drawHistoryChart } from '../lib/chart.js';
@@ -14,6 +14,11 @@ import PartDetail from './inspector/PartDetail.jsx';
 //  - when the aircraft/part changes, the numbers "read sensors": they scramble and lock one by one
 //    (lib/screening.js edits the DOM text directly, so React output is frozen while it runs)
 //  - after a normal update, values that changed flash
+//
+// FE1 fix: the `key` used to be `++seq.current`, incremented on *every* render. That
+// unmounted and rebuilt the entire inspector subtree (~6.7×/second), its `<canvas>`,
+// and the sensor table. The computed `key` at line 20 already uniquely identifies the
+// view; use it directly.
 export default function Inspector() {
   const app = useStore();
   const e = fleet[app.sel];
@@ -22,21 +27,24 @@ export default function Inspector() {
   const panelRef = useRef(null);
   const sideRef = useRef(null);
   const cache = useRef({ el: null });
-  const seq = useRef(0);
   const reused = useRef(false);
   const sideKey = useRef('');
   const inTimer = useRef(0);
   const [scanning, setScanning] = useState(false);
 
-  let body;
-  if (scr.on && scr.key === key && cache.current.el) {
-    body = cache.current.el;     // scan in progress for this view: keep the exact same element so React leaves the DOM alone
-    reused.current = true;
-  } else {
+  // The body element is memoised on `key` and `reused` instead of a monotonically
+  // increasing counter. This stops the 6.7 subtree remounts/second and the perpetually
+  // replaying `.chg` flash.
+  const body = useMemo(() => {
+    if (scr.on && scr.key === key && cache.current.el) {
+      reused.current = true;
+      return cache.current.el;
+    }
     reused.current = false;
-    body = <Fragment key={++seq.current}>{app.tgt ? <PartDetail e={e} /> : <AircraftSummary e={e} />}</Fragment>;
-    cache.current.el = body;
-  }
+    const el = <Fragment key={key}>{app.tgt ? <PartDetail e={e} /> : <AircraftSummary e={e} />}</Fragment>;
+    cache.current.el = el;
+    return el;
+  }, [key, reused.current]);
 
   // Runs after every render, like the original side() did after every render().
   useLayoutEffect(() => {

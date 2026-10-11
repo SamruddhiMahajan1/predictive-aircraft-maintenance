@@ -40,7 +40,30 @@ export function createTwin(stage) {
       cancelAnimationFrame(rt.raf);
       detach();
       stage.querySelectorAll('canvas, .hs, .tag, .fstat').forEach((n) => n.remove());
-      ctx.R?.dispose();
+
+      // FE7: R.dispose() alone frees nothing — geometries, materials, textures,
+      // and the PMREM render target must be disposed explicitly, and the GL
+      // context must be asked to force loss so the GPU driver releases memory.
+      if (ctx.R) {
+        ctx.R.info.memory.geometries = 0;
+        ctx.R.info.memory.textures = 0;
+        ctx.R.info.memory.programs = 0;
+        // Traverse the entire scene graph and dispose every GL resource.
+        if (ctx.S) {
+          ctx.S.traverse((obj) => {
+            if (obj.geometry) obj.geometry.dispose();
+            if (obj.material) {
+              if (Array.isArray(obj.material)) {
+                obj.material.forEach((m) => m.dispose());
+              } else {
+                obj.material.dispose();
+              }
+            }
+          });
+        }
+        ctx.R.dispose();
+        ctx.R.forceContextLoss?.();
+      }
     },
   };
 }

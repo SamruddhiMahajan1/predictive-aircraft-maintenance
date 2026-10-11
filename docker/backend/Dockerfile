@@ -9,9 +9,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 COPY backend/pyproject.toml ./
+# The feature contract lives at the repository root and is a build input, not a runtime
+# one: it is pip-installed into the venv below, so nothing under ml/ is COPYed into the
+# runtime stage. `rul.contract` imports only the standard library.
+COPY ml/ ./ml/
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
- && /opt/venv/bin/pip install ".[dev]"
+ && /opt/venv/bin/pip install "./ml" \
+ && /opt/venv/bin/pip install "." \
+ && /opt/venv/bin/pip uninstall -y nvidia-nccl-cu12 \
+ && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
+ && find /opt/venv -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.a" -o -name "*.h" -o -name "*.hpp" \) -delete 2>/dev/null || true \
+ && find /opt/venv -type d \( -name "tests" -o -name "test" -o -name "doc" -o -name "docs" -o -name "examples" \) -exec rm -rf {} + 2>/dev/null || true
 
 
 # ---------- stage 2: runtime ----------

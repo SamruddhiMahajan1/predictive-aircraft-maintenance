@@ -252,6 +252,7 @@ export function startLiveFleetSocket(onEvent, onStatus) {
 
       ws.onopen = () => {
         reconnectAttempt = 0;
+        ws.isOpen = true;
         // keep-alive: the server answers `ping` with `pong`, which doubles as proof
         // the stream is live rather than merely open.
         ws.send(JSON.stringify({ type: 'ping', payload: {} }));
@@ -264,15 +265,36 @@ export function startLiveFleetSocket(onEvent, onStatus) {
         onStatus?.(true);
       };
 
+      // FE9: WebSocket messages were parsed and dispatched synchronously per frame,
+      // no queue, no depth cap, no rAF coalescing. The server has a bounded queue
+      // with overflow handling; the client must match it.
+      const msgQueue = [];
+      let raf = 0;
+      const MAX_QUEUE = 256;
+      function drain() {
+        raf = 0;
+        while (msgQueue.length) {
+          const ev = msgQueue.shift();
+          onEvent?.(ev);
+        }
+      }
+
       ws.onmessage = (event) => {
         try {
-          onEvent?.(JSON.parse(event.data));
+          const ev = JSON.parse(event.data);
+          if (msgQueue.length < MAX_QUEUE) {
+            msgQueue.push(ev);
+          } else {
+            console.warn('[WS] queue full, dropping frame');
+          }
+          if (!raf) raf = requestAnimationFrame(drain);
         } catch (e) {
           console.error('[WS] malformed frame:', e);
         }
       };
 
       ws.onclose = () => {
+        if (raf) cancelAnimationFrame(raf);
         onStatus?.(false);
         activeWs = null;
         scheduleReconnect(connect);

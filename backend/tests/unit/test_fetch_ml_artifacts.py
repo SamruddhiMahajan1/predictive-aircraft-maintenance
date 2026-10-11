@@ -5,6 +5,7 @@ either direction is what made the original problem possible: a checkout whose ar
 directory exists but is incomplete reported itself as staged, so the bootstrap skipped
 the fetch and the API served `rul = 125 - cycle` for every prediction.
 """
+
 from __future__ import annotations
 
 import json
@@ -37,11 +38,14 @@ def _settings(tmp_path: Path, variant: str = "all") -> Settings:
 
 
 def test_a_complete_set_counts_as_staged(tmp_path):
-    dest = _stage(tmp_path, {
-        "feature_contract_all_full.json": json.dumps(CONTRACT),
-        "xgboost_all_full.json": "{}",
-        "regime_baselines_all.json": "{}",
-    })
+    dest = _stage(
+        tmp_path,
+        {
+            "feature_contract_all_full.json": json.dumps(CONTRACT),
+            "xgboost_all_full.json": "{}",
+            "regime_baselines_all.json": "{}",
+        },
+    )
     assert fetch_mod.already_staged(_settings(tmp_path), "all") is True
     assert dest.is_dir()
 
@@ -54,10 +58,13 @@ def test_an_empty_directory_is_not_staged(tmp_path):
 def test_a_missing_baselines_file_is_not_staged(tmp_path):
     """The loader z-scores against the baselines; without them every prediction would be
     scored against nothing, so this is not a usable stage even with a booster present."""
-    _stage(tmp_path, {
-        "feature_contract_all_full.json": json.dumps(CONTRACT),
-        "xgboost_all_full.json": "{}",
-    })
+    _stage(
+        tmp_path,
+        {
+            "feature_contract_all_full.json": json.dumps(CONTRACT),
+            "xgboost_all_full.json": "{}",
+        },
+    )
     assert fetch_mod.already_staged(_settings(tmp_path), "all") is False
 
 
@@ -68,29 +75,39 @@ def test_a_missing_contract_is_not_staged(tmp_path):
 
 def test_an_unparseable_contract_is_not_staged(tmp_path):
     """A truncated download must not read as a complete stage."""
-    _stage(tmp_path, {
-        "feature_contract_all_full.json": '{"model_file": "x.json"',
-        "xgboost_all_full.json": "{}",
-        "regime_baselines_all.json": "{}",
-    })
+    _stage(
+        tmp_path,
+        {
+            "feature_contract_all_full.json": '{"model_file": "x.json"',
+            "xgboost_all_full.json": "{}",
+            "regime_baselines_all.json": "{}",
+        },
+    )
     assert fetch_mod.already_staged(_settings(tmp_path), "all") is False
 
 
 def test_a_zero_byte_booster_is_not_staged(tmp_path):
-    _stage(tmp_path, {
-        "feature_contract_all_full.json": json.dumps(CONTRACT),
-        "xgboost_all_full.json": "",
-        "regime_baselines_all.json": "{}",
-    })
+    _stage(
+        tmp_path,
+        {
+            "feature_contract_all_full.json": json.dumps(CONTRACT),
+            "xgboost_all_full.json": "",
+            "regime_baselines_all.json": "{}",
+        },
+    )
     assert fetch_mod.already_staged(_settings(tmp_path), "all") is False
 
 
 def test_a_variant_with_nothing_staged_reports_not_staged(tmp_path):
-    _stage(tmp_path, {
-        "feature_contract_all_full.json": json.dumps(CONTRACT),
-        "xgboost_all_full.json": "{}",
-        "regime_baselines_all.json": "{}",
-    }, variant="all")
+    _stage(
+        tmp_path,
+        {
+            "feature_contract_all_full.json": json.dumps(CONTRACT),
+            "xgboost_all_full.json": "{}",
+            "regime_baselines_all.json": "{}",
+        },
+        variant="all",
+    )
     assert fetch_mod.already_staged(_settings(tmp_path, variant="full"), "full") is False
 
 
@@ -109,11 +126,14 @@ def test_no_url_with_nothing_staged_fails_loudly(tmp_path, capsys, monkeypatch):
 
 
 def test_no_url_with_a_complete_set_is_a_clean_skip(tmp_path, capsys, monkeypatch):
-    _stage(tmp_path, {
-        "feature_contract_all_full.json": json.dumps(CONTRACT),
-        "xgboost_all_full.json": "{}",
-        "regime_baselines_all.json": "{}",
-    })
+    _stage(
+        tmp_path,
+        {
+            "feature_contract_all_full.json": json.dumps(CONTRACT),
+            "xgboost_all_full.json": "{}",
+            "regime_baselines_all.json": "{}",
+        },
+    )
     monkeypatch.setenv("FDT_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv(fetch_mod.ENV_URL, raising=False)
     assert fetch_mod.fetch("all", None) == 0

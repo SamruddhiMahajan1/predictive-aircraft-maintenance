@@ -4,6 +4,7 @@ Two paths, per docs/01-requirements-evaluation.md:
   engine            -> rul / RUL_CAP, from the ML service (not simulated)
   radar/gear/hyd/fuel -> maintenance_burden_v1 from real maintenance history
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -63,9 +64,7 @@ def maintenance_burden(
         mapped = FAULT_MAP.get(r["fault_type"] or "")
         if not mapped or mapped[0] != part:
             continue
-        score += (
-            mapped[1] * recency_weight(r["age_months"]) * float(r["downtime_hours"]) / 100
-        )
+        score += mapped[1] * recency_weight(r["age_months"]) * float(r["downtime_hours"]) / 100
     for s in snags:
         sev = s["severity"]
         if sev not in SEVERITY_WEIGHT or SNAG_PART_WEIGHT[sev][0] != part:
@@ -100,5 +99,3 @@ class EmaState:
 
     def reset(self) -> None:
         self.values.clear()
-
-

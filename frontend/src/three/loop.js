@@ -11,17 +11,25 @@ import { VIEW_TARGETS } from './config.js';
 import { animateEngine, hideEngineTags } from './models/engine.js';
 import { animateFuel } from './models/fuelSystem.js';
 import { animateHydraulics } from './models/hydraulics.js';
-import { subFaultAnim, hideFaultTags, hideSubFaultTags } from './subFaults.js';
+import { subFaultAnim, hideFaultTags, hideSubFaultTags } from './subFaults.jsx';
 
 // Render loop: auto-rotation / view presets, hotspot labels, whole-jet <-> part transition, per-part animation.
+// FE6 fix: stage.clientWidth/Height was read after writing styles (4-5 forced layouts/frame).
+// Now cached in rt and refreshed only on resize.
 export function startLoop() {
   const { stage, R, S, cam, JP, JI } = ctx;
   const { PR, AR, LB } = ctx;
   const P0=new THREE.Vector3(72,56,168),P2=new THREE.Vector3(0,12,105),T0=new THREE.Vector3(),v=new THREE.Vector3(),aw=new THREE.Vector3(),nw=new THREE.Vector3(),pp=new THREE.Vector3(),np=new THREE.Vector3(),tt=new THREE.Vector3();
 
+  // Cache stage dimensions; updated only on resize.
+  const refreshStage = () => {
+    rt.stageW = stage.clientWidth;
+    rt.stageH = stage.clientHeight;
+  };
+  refreshStage();
+  window.addEventListener('resize', refreshStage);
+
   function frame(t){rt.raf=requestAnimationFrame(frame);
-   // A hidden tab still gets throttled rAF callbacks — skip the whole scene
-   // graph walk + DOM writes instead of burning CPU/GPU for nobody.
    if(document.hidden){rt.lt=t;return}
    const dt=Math.min(.05,(t-rt.lt)/1000||.016);rt.lt=t;
    rt.tz=clamp(rt.tz+(app.tgt?1:-1)*(rt.tz==app.tgt?0:dt/1.5));if(Math.abs(rt.tz-app.tgt)<.001)rt.tz=app.tgt;
@@ -32,17 +40,15 @@ export function startLoop() {
    KEYS.forEach((k,i)=>{const h=ph(e,k),c=hc(h),a=AR[k],L=LB[k];
     if(!a.ok){L.style.opacity=0;L.style.pointerEvents='none';return}
     if(a.c!==c){a.c=c;a.all.forEach(m=>m.color.set(c))}
-    // ph() is null until the API answers for that part; it must render as unknown
-    // rather than as NaN% (or, worse, as a failed part once hc() started returning a
-    // neutral colour for null).
     L.style.setProperty('--c',c);L.lastChild.textContent=h==null?'--':Math.round(h*100)+'%';
     aw.copy(a.a);JI.localToWorld(aw);v.copy(a.lp);JI.localToWorld(v);nw.copy(a.n).transformDirection(JI.matrixWorld);
     const face=nw.dot(pp.copy(cam.position).sub(aw).normalize()),vis=sm(-.05,.3,face)*(1-sm(0,.25,rt.tz));
     a.cone.position.y=7;a.ms.forEach(m=>m.opacity=vis);
     a.rp.forEach(r=>{r.visible=false});
     a.g.visible=vis>.05;v.project(cam);
-    L.style.transform='translate('+(Math.max(80,Math.min(stage.clientWidth-80,(v.x+1)/2*stage.clientWidth))|0)+'px,'+((1-v.y)/2*stage.clientHeight|0)+'px) translate(-50%,-50%) scale('+(.85+.15*vis)+')';
-    L.style.opacity=vis;L.style.pointerEvents=vis>.5?'auto':'none';L.tabIndex=vis>.5?0:-1;a.sx=Math.max(80,Math.min(stage.clientWidth-80,(v.x+1)/2*stage.clientWidth));a.sy=(1-v.y)/2*stage.clientHeight;a.vis=vis});
+    const W=rt.stageW, H=rt.stageH;
+    L.style.transform='translate('+(Math.max(80,Math.min(W-80,(v.x+1)/2*W))|0)+'px,'+((1-v.y)/2*H|0)+'px) translate(-50%,-50%) scale('+(.85+.15*vis)+')';
+    L.style.opacity=vis;L.style.pointerEvents=vis>.5?'auto':'none';L.tabIndex=vis>.5?0:-1;a.sx=Math.max(80,Math.min(W-80,(v.x+1)/2*W));a.sy=(1-v.y)/2*H;a.vis=vis});
    const vl=KEYS.filter(k=>AR[k].ok&&AR[k].vis>.05).sort((p,q)=>AR[p].sy-AR[q].sy);for(let i=1;i<vl.length;i++){const A=AR[vl[i-1]],B=AR[vl[i]];if(Math.abs(B.sx-A.sx)<150&&B.sy-A.sy<30){B.sy=A.sy+30;LB[vl[i]].style.transform='translate('+(B.sx|0)+'px,'+(B.sy|0)+'px) translate(-50%,-50%)'}}
    const op=1-sm(.25,.6,rt.tz),po=sm(.5,.9,rt.tz);
    if(ctx.JET&&Math.abs(op-rt.lastJ)>.005){setOp(ctx.JET,op);rt.lastJ=op}

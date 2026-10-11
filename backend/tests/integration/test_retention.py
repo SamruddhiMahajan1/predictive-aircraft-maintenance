@@ -6,6 +6,7 @@ the managed Postgres fills its disk. The behaviour worth pinning is therefore th
 *boundary* — old rows go, recent rows stay — and the guarantee that pruning cannot
 break the replay writer's upserts.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -77,7 +78,8 @@ def _write_cycle(db, cycle: int, recorded_at: datetime) -> None:
                 "sensors": {name: 10.0 + i for i, name in enumerate(SENSOR_COLUMNS)},
             }
         ],
-        recorded_at=recorded_at)
+        recorded_at=recorded_at,
+    )
     db.commit()
 
 
@@ -94,7 +96,8 @@ def seeded_ticks(db, database):
         (900, NOW - timedelta(hours=10)),
         (901, NOW - timedelta(hours=8)),
         (902, NOW - timedelta(hours=2)),
-        (903, NOW - timedelta(minutes=5))):
+        (903, NOW - timedelta(minutes=5)),
+    ):
         _write_cycle(db, cycle, at)
     return db
 
@@ -106,7 +109,8 @@ def seeded_ticks(db, database):
         (ComponentHealth, "recorded_at"),
         (HealthSnapshot, "recorded_at"),
         (MlPrediction, "created_at"),
-    ])
+    ],
+)
 def test_prune_removes_old_and_keeps_recent(seeded_ticks, model, column):
     """The whole point: a timestamp boundary, applied to all four growing tables."""
     before = _count(seeded_ticks, model)
@@ -117,9 +121,7 @@ def test_prune_removes_old_and_keeps_recent(seeded_ticks, model, column):
     assert counts[model.__tablename__] >= 2, f"nothing pruned from {model.__tablename__}"
 
     cutoff = NOW - timedelta(hours=3)
-    stale = seeded_ticks.scalars(
-        select(model.id).where(getattr(model, column) < cutoff)
-    ).all()
+    stale = seeded_ticks.scalars(select(model.id).where(getattr(model, column) < cutoff)).all()
     assert not stale, f"{model.__tablename__} kept rows older than the horizon"
 
     fresh = seeded_ticks.scalars(
@@ -172,7 +174,7 @@ def test_pruned_cycle_can_be_written_again(db, seeded_ticks):
     """
     prune_once(Settings(telemetry_retention_hours=3), now=NOW)
 
-    _write_cycle(db, 900, NOW)          # cycle 900 was pruned above
+    _write_cycle(db, 900, NOW)  # cycle 900 was pruned above
     assert _count(db, EngineTelemetry) >= 1
 
     fresh = db.scalars(
@@ -262,11 +264,7 @@ def test_stored_timestamps_are_really_old(db, seeded_ticks):
     would ever look old.
     """
     old = NOW - timedelta(hours=10)
-    db.execute(
-        update(EngineTelemetry)
-        .where(EngineTelemetry.cycle == 900)
-        .values(recorded_at=old)
-    )
+    db.execute(update(EngineTelemetry).where(EngineTelemetry.cycle == 900).values(recorded_at=old))
     db.commit()
 
     stored = db.scalars(

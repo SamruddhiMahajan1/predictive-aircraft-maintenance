@@ -1,4 +1,5 @@
 """Fleet read endpoints — spec items 27-34, against the seeded database."""
+
 from __future__ import annotations
 
 from contextlib import contextmanager
@@ -28,9 +29,16 @@ def frozen_replay(client):
 # ── 27 /fleet/summary ──────────────────────────────────────────────────────────
 def test_summary_shape(client):
     body = client.get("/api/v1/fleet/summary").json()
-    for field in ("mission_ready_count", "total_aircraft", "critical_parts",
-                  "average_rul", "lowest_rul_aircraft", "risk_breakdown",
-                  "series", "generated_at"):
+    for field in (
+        "mission_ready_count",
+        "total_aircraft",
+        "critical_parts",
+        "average_rul",
+        "lowest_rul_aircraft",
+        "risk_breakdown",
+        "series",
+        "generated_at",
+    ):
         assert field in body, field
 
 
@@ -38,8 +46,12 @@ def test_summary_counts_the_seeded_fleet(client):
     body = client.get("/api/v1/fleet/summary").json()
     assert body["total_aircraft"] == 8
     assert body["mission_ready_count"] <= 8
-    assert body["risk_breakdown"]["healthy"] + body["risk_breakdown"]["watch"] \
-        + body["risk_breakdown"]["critical"] == 40      # 8 aircraft x 5 parts
+    assert (
+        body["risk_breakdown"]["healthy"]
+        + body["risk_breakdown"]["watch"]
+        + body["risk_breakdown"]["critical"]
+        == 40
+    )  # 8 aircraft x 5 parts
 
 
 def test_summary_lowest_rul_is_the_minimum(client):
@@ -87,8 +99,16 @@ def test_aircraft_list_returns_the_eight_seeded_units(client):
 
 def test_aircraft_list_item_fields(client):
     item = client.get("/api/v1/aircraft").json()["items"][0]
-    for field in ("id", "code", "mission_ready", "rul", "worst_part", "risk",
-                  "engine_health", "parts"):
+    for field in (
+        "id",
+        "code",
+        "mission_ready",
+        "rul",
+        "worst_part",
+        "risk",
+        "engine_health",
+        "parts",
+    ):
         assert field in item, field
     assert set(item["parts"]) == set(PARTS)
     assert item["risk"] in RISKS
@@ -160,8 +180,16 @@ def test_unknown_aircraft_is_404(client):
 # ── 30 /aircraft/{id}/engine ───────────────────────────────────────────────────
 def test_engine_detail_fields(client):
     body = client.get("/api/v1/aircraft/Fighter-01/engine").json()
-    for field in ("rul", "components", "top_sensors", "component_sensor_map",
-                  "history", "model", "health", "risk"):
+    for field in (
+        "rul",
+        "components",
+        "top_sensors",
+        "component_sensor_map",
+        "history",
+        "model",
+        "health",
+        "risk",
+    ):
         assert field in body, field
 
 
@@ -176,8 +204,10 @@ def test_engine_component_map_matches_the_spec(client):
     body = client.get("/api/v1/aircraft/Fighter-01/engine").json()
     assert body["component_sensor_map"] == {
         # s9 added to hpc: highest end-of-life deviation and 7.8% of model gain
-        "fan": ["s8", "s13"], "hpc": ["s3", "s7", "s9", "s11"],
-        "hpt": ["s20", "s21"], "lpt": ["s4"],
+        "fan": ["s8", "s13"],
+        "hpc": ["s3", "s7", "s9", "s11"],
+        "hpt": ["s20", "s21"],
+        "lpt": ["s4"],
     }
 
 
@@ -308,8 +338,16 @@ def test_actions_reject_a_limit_over_fifty(client):
 
 def test_actions_carry_action_spare_and_agency(client):
     item = client.get("/api/v1/fleet/actions?limit=1").json()["items"][0]
-    for field in ("aircraft", "part", "health", "risk", "action",
-                  "spare", "agency", "back_in_service_days"):
+    for field in (
+        "aircraft",
+        "part",
+        "health",
+        "risk",
+        "action",
+        "spare",
+        "agency",
+        "back_in_service_days",
+    ):
         assert field in item, field
 
 

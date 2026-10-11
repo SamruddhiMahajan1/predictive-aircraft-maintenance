@@ -68,21 +68,38 @@ server {
     location ~* \.(js|css|woff2?|png|jpg|jpeg|gif|svg|ico|glb|bin|gz|json)$ {
         expires 1y;
         add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-Frame-Options "SAMEORIGIN";
+        add_header Referrer-Policy "strict-origin-when-cross-origin";
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()";
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
         try_files $uri =404;
     }
 
     # engine.bin.gz is pre-gzipped and the client gunzips it with DecompressionStream
     # after sniffing magic bytes, so nginx must not re-encode it.
+    # The regex at line 68 matches .gz first, so this block is kept for documentation
+    # but will never match. If you need .gz handling, move it before the above.
     location ~* \.gz$ {
         gzip off;
         default_type application/octet-stream;
         expires 1y;
         add_header Cache-Control "public, immutable";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-Frame-Options "SAMEORIGIN";
+        add_header Referrer-Policy "strict-origin-when-cross-origin";
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()";
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
         try_files $uri =404;
     }
 
     location = /index.html {
         add_header Cache-Control "no-store, must-revalidate";
+        add_header X-Content-Type-Options "nosniff";
+        add_header X-Frame-Options "SAMEORIGIN";
+        add_header Referrer-Policy "strict-origin-when-cross-origin";
+        add_header Permissions-Policy "geolocation=(), microphone=(), camera=()";
+        add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' ws: wss:; frame-ancestors 'self'; base-uri 'self'; form-action 'self'";
     }
 
     # SPA fallback: every unmatched path renders the shell so client routing works.
@@ -91,10 +108,9 @@ server {
     }
 
     # Baseline hardening. The app loads no third-party origins, so the policy can be tight.
-    add_header X-Content-Type-Options "nosniff" always;
-    add_header X-Frame-Options "SAMEORIGIN" always;
-    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
-    add_header Permissions-Policy "geolocation=(), microphone=(), camera=()" always;
-
+    # Headers are now declared in each location block because add_header does NOT
+    # merge across blocks — the index.html location would have discarded all four
+    # security headers if they were only here. The .gz block is kept for documentation
+    # but the regex at line 68 matches first so it never fires.
     server_tokens off;
 }

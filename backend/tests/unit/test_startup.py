@@ -6,6 +6,7 @@ in one stroke — the service reported healthy while serving an empty fallback
 fleet with no live stream. Each phase is now guarded independently; these tests
 pin that.
 """
+
 from __future__ import annotations
 
 import asyncio

@@ -1,4 +1,5 @@
 """Configuration guards — settings that must behave sanely in every environment."""
+
 from __future__ import annotations
 
 import pytest
@@ -15,8 +16,7 @@ def test_production_allows_demo_mode():
 
 def test_cors_origins_accepts_a_comma_separated_string():
     """Operators set this as one env var; it must not arrive as one long string."""
-    settings = Settings(
-        cors_origins="https://a.example, https://b.example ,")
+    settings = Settings(cors_origins="https://a.example, https://b.example ,")
     assert settings.cors_origins == ["https://a.example", "https://b.example"]
 
 
@@ -32,7 +32,8 @@ def test_cors_origins_accepts_a_comma_separated_string():
         "postgres://u:p@host/db",
         "postgresql://u:p@host/db",
         "postgres://u:p@host:5432/db?sslmode=require",
-    ])
+    ],
+)
 def test_a_bare_provider_url_gets_the_pinned_driver(given):
     assert Settings(database_url=given).database_url.startswith("postgresql+psycopg://")
 

@@ -44,8 +44,15 @@ authoritative schema is the Alembic migration in `backend/alembic/versions/` plu
 | 13 | [Multi-Regime Training Report](13-multi-regime-training-report.md) | Phase 2: FD002–FD004 regime handling, cross-validation results, verdict |
 | 14 | [**Final Status Report**](14-final-status-report.md) | **Start here.** Current state, measured numbers, open defects, next steps |
 | 15 | [**Serving the Pooled Model**](15-serving-the-pooled-model.md) | The 32-column `ALL` contract, the two constant sensors, subset-aware baselines, deployment traps |
+| 16 | [**Review & Improvement Plan**](16-review-and-improvement-plan.md) | **Start here.** Independently verified review: measured accuracy, latency and query plans, three critical defects, the phased fix plan, a standard training pipeline, and the innovation backlog |
 
 ## Start here
+
+**[16 — Review & Improvement Plan](16-review-and-improvement-plan.md)** — the most recent
+review, and the only one whose numbers were independently re-derived from raw C-MAPSS and a
+live server rather than read from the repository. It supersedes [14](14-final-status-report.md)
+where the two disagree, and it records where several earlier docs describe controls that no
+longer exist.
 
 **[14 — Final Status Report](14-final-status-report.md)** — what exists, what the numbers
 are, what is broken, and what to do next. Read it before building anything: the feature

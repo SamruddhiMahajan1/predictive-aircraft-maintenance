@@ -4,6 +4,7 @@ The router (`app/api/v1/telemetry.py`) is now transport-only: validate, delegate
 shape the response. All orchestration lives here and all persistence lives in
 `app/repositories/telemetry_repo.py`.
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -37,9 +38,7 @@ def build_rows(raw_rows: list[Any]) -> list[dict[str, Any]]:
         sensors = dict(r.sensors)
         if sensors.get("s6") is None:
             sensors["s6"] = s6_median
-        rows.append(
-            {"cycle": r.cycle, "settings": r.settings.model_dump(), "sensors": sensors}
-        )
+        rows.append({"cycle": r.cycle, "settings": r.settings.model_dump(), "sensors": sensors})
     return rows
 
 
@@ -74,16 +73,27 @@ def ingest(db: Session, aircraft_code: str, raw_rows: list[Any]) -> dict[str, An
     )
 
     alerts_raised, alert_id = _sync_engine_alert(
-        db, aircraft=aircraft, part_id=engine_part.id,
-        risk=risk, health=health, rul=prediction["rul"], cycle=last_cycle, now=now,
+        db,
+        aircraft=aircraft,
+        part_id=engine_part.id,
+        risk=risk,
+        health=health,
+        rul=prediction["rul"],
+        cycle=last_cycle,
+        now=now,
     )
     db.commit()
 
     bus.publish_soon(cycle_tick(last_cycle))
     bus.publish_soon(
         health_updated(
-            aircraft.code, aircraft.id, "engine", health, risk,
-            prediction["rul"], last_cycle,
+            aircraft.code,
+            aircraft.id,
+            "engine",
+            health,
+            risk,
+            prediction["rul"],
+            last_cycle,
         )
     )
     if alerts_raised:
@@ -188,8 +198,13 @@ def _sync_engine_alert(
         return 0, None
 
     alert = Alert(
-        aircraft_id=aircraft.id, part_id=part_id, level=risk, message=message,
-        cycle=cycle, health=health, created_at=now,
+        aircraft_id=aircraft.id,
+        part_id=part_id,
+        level=risk,
+        message=message,
+        cycle=cycle,
+        health=health,
+        created_at=now,
     )
     db.add(alert)
     db.flush()

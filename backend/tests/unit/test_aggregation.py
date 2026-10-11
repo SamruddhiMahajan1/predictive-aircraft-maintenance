@@ -1,4 +1,5 @@
 """Series, matrices and rollups — pure aggregation helpers."""
+
 from __future__ import annotations
 
 import pytest
@@ -27,16 +28,19 @@ def test_heatmap_always_has_five_cells_in_order():
 
 
 def test_heatmap_fills_missing_parts_with_null():
-    matrix = heatmap_matrix([{"part": "engine", "health": 0.9, "risk": "healthy",
-                              "is_simulated": False}])
+    matrix = heatmap_matrix(
+        [{"part": "engine", "health": 0.9, "risk": "healthy", "is_simulated": False}]
+    )
     assert len(matrix["cells"]) == 5
     assert matrix["cells"][1]["health"] is None
 
 
 def test_rank_worst_parts_is_ascending_and_limited():
     rows = [
-        {"part": "engine", "health": 0.9}, {"part": "radar", "health": 0.2},
-        {"part": "gear", "health": 0.5}, {"part": "hyd", "health": 0.1},
+        {"part": "engine", "health": 0.9},
+        {"part": "radar", "health": 0.2},
+        {"part": "gear", "health": 0.5},
+        {"part": "hyd", "health": 0.1},
         {"part": "fuel", "health": 0.7},
     ]  # rank_worst_parts only needs health + part
     ranked = rank_worst_parts(rows, limit=3)
@@ -86,9 +90,7 @@ def test_fleet_series_shares_cycles_between_both_lines():
     avg = [p["cycle"] for p in out["fleet_avg_health"]]
     weak = [p["cycle"] for p in out["weakest_aircraft_health"]]
     assert avg == weak
-    assert out["fleet_avg_health"][0]["value"] == pytest.approx(
-        (0.89 + 0.49) / 2, abs=1e-3
-    )
+    assert out["fleet_avg_health"][0]["value"] == pytest.approx((0.89 + 0.49) / 2, abs=1e-3)
 
 
 def test_fleet_series_of_empty_input():

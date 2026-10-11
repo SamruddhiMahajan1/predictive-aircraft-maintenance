@@ -93,7 +93,11 @@ export function planCsv() {
 
 export function downloadPlanCsv() {
   const a = document.createElement('a');
-  a.href = URL.createObjectURL(new Blob([planCsv()], { type: 'text/csv' }));
+  const url = URL.createObjectURL(new Blob([planCsv()], { type: 'text/csv' }));
+  a.href = url;
   a.download = 'maintenance-plan.csv';
   a.click();
+  // FE8: URL.createObjectURL never revoked — leaks a Blob per CSV export.
+  // Revoke after the download starts; a short timeout ensures the click has fired.
+  setTimeout(() => URL.revokeObjectURL(url), 0);
 }

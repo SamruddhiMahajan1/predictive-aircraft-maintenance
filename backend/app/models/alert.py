@@ -1,4 +1,5 @@
 """Alert table — derived from risk transitions (docs/03 §9)."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -28,8 +29,16 @@ class Alert(Base):
         CheckConstraint("acknowledged = FALSE OR acked_at IS NOT NULL", name="alert_ack"),
         Index("ix_alert_open", "acknowledged", "created_at"),
         # one live alert per aircraft+part — stops the 1.2s replay from spamming
-        Index("uq_alert_live", "aircraft_id", "part_id",
-              unique=True, postgresql_where=text("acknowledged = FALSE")),
+        Index(
+            "uq_alert_live",
+            "aircraft_id",
+            "part_id",
+            unique=True,
+            postgresql_where=text("acknowledged = FALSE"),
+        ),
+        Index("ix_alert_aircraft_id", "aircraft_id"),
+        Index("ix_alert_part_id", "part_id"),
+        Index("ix_alert_created_at_desc", text("created_at DESC")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -42,7 +51,9 @@ class Alert(Base):
     acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
     acked_by: Mapped[int | None] = mapped_column(Integer)
     acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="alerts")
     part: Mapped[Part] = relationship(back_populates="alerts")

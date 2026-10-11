@@ -1,4 +1,5 @@
 """WebSocket /ws/fleet — spec item 42 (docs/09 §3)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -57,7 +58,9 @@ async def ws_fleet(
 
     await websocket.accept()
     queue = bus.subscribe()
-    filters: set[str] = set(filter(None, (a.strip() for a in aircraft.split(",")))) if aircraft else set()
+    filters: set[str] = (
+        set(filter(None, (a.strip() for a in aircraft.split(",")))) if aircraft else set()
+    )
 
     # One counter for every frame this socket sends, so `seq` is monotonic in arrival
     # order no matter which task emitted it. Previously `pong` was sent straight from the

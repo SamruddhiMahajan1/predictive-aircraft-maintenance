@@ -210,7 +210,8 @@ export function refreshFleet() {
 
 /* ── per-aircraft detail ────────────────────────────────────────────────────── */
 
-let detailSeq = 0;
+let detailSeqAircraft = 0;
+let detailSeqEngine = 0;
 
 /**
  * GET /aircraft/{code} — per-part health, risk, RUL, weakest component, availability.
@@ -219,20 +220,27 @@ let detailSeq = 0;
  * RUL and worst component, which the heatmap does not include.
  */
 export async function refreshAircraft(code) {
-  const seq = ++detailSeq;
+  const seq = ++detailSeqAircraft;
   const body = await fetchAircraftDetail(code);
-  if (stopped || seq !== detailSeq) return;
+  if (stopped || seq !== detailSeqAircraft) return;
   if (!body) return;
   applyDetail(body);
   emit();
 }
 
+/**
+ * GET /aircraft/{code}/engine — engine history, RUL, components, top sensors.
+ *
+ * Includes a 60-cycle history that the fleet-wide polls do not carry. The history
+ * replaces the local reconstruction rather than appending to it, because the server
+ * keeps a full per-cycle record and there is no reason to reconstruct it.
+ */
 export async function refreshEngine(code) {
   const e = resolve(code);
   if (!e) return;
-  const seq = ++detailSeq;
+  const seq = ++detailSeqEngine;
   const body = await fetchEngineDetail(code, HISTORY_MAX - 1);
-  if (stopped || seq !== detailSeq) return;    // a newer request superseded this one
+  if (stopped || seq !== detailSeqEngine) return;    // a newer request superseded this one
   if (!body) return;
 
   e.cycle = body.current_cycle ?? e.cycle;

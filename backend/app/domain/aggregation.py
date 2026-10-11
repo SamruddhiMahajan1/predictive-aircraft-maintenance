@@ -1,4 +1,5 @@
 """Aggregation helpers — series, matrices, rollups. Pure."""
+
 from __future__ import annotations
 
 from collections import defaultdict
@@ -36,8 +37,7 @@ def fleet_series(
         )
         wm = by_aircraft_cycle.get(weakest_aircraft or -1, {})
         weakest.append({"cycle": cycle, "value": round(wm.get(cycle, 0.0), 3)})
-    series: dict[str, Any] = {"fleet_avg_health": fleet_avg,
-                               "weakest_aircraft_health": weakest}
+    series: dict[str, Any] = {"fleet_avg_health": fleet_avg, "weakest_aircraft_health": weakest}
     return {"window": len(ordered), **series}
 
 
@@ -53,8 +53,11 @@ def heatmap_matrix(parts: list[dict[str, Any]]) -> dict[str, Any]:
         }
         for code in PART_ORDER
     ]
-    return {"parts": list(PART_ORDER), "cells": cells,
-            "legend": {"healthy": "> 0.70", "watch": "0.40 - 0.70", "critical": "<= 0.40"}}
+    return {
+        "parts": list(PART_ORDER),
+        "cells": cells,
+        "legend": {"healthy": "> 0.70", "watch": "0.40 - 0.70", "critical": "<= 0.40"},
+    }
 
 
 def rank_worst_parts(parts: list[dict[str, Any]], limit: int = 5) -> list[dict[str, Any]]:
@@ -79,12 +82,14 @@ def rollup(aircraft: list[dict[str, Any]], parts: list[dict[str, Any]]) -> dict[
         "critical_parts": risks["critical"],
         "average_rul": round(sum(ruls) / len(ruls), 1) if ruls else 0.0,
         "lowest_rul_aircraft": (
-            {"id": lowest["id"], "code": lowest["code"], "rul": lowest["rul"],
-             "name": lowest["name"]}
+            {
+                "id": lowest["id"],
+                "code": lowest["code"],
+                "rul": lowest["rul"],
+                "name": lowest["name"],
+            }
             if lowest
             else None
         ),
         "risk_breakdown": {k: risks.get(k, 0) for k in ("healthy", "watch", "critical")},
     }
-
-

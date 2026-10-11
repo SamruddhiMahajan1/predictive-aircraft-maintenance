@@ -1,4 +1,5 @@
 """Spares, agencies, alerts and the audit trail — spec items 36-39, 51."""
+
 from __future__ import annotations
 
 import pytest
@@ -19,8 +20,7 @@ def _spare(client, *, stock=None):
 
 
 def _set_stock(client, part_ref_id, stock):
-    return client.patch(f"/api/v1/spares/{part_ref_id}",
-                        json={"stock": stock, "reason": "adjust"})
+    return client.patch(f"/api/v1/spares/{part_ref_id}", json={"stock": stock, "reason": "adjust"})
 
 
 # ── 36 spares ──────────────────────────────────────────────────────────────────
@@ -32,9 +32,20 @@ def test_spares_are_seeded_from_the_csv(client):
 
 def test_spare_fields_come_from_the_source(client):
     item = _spare(client)
-    for field in ("part_ref_id", "item_name", "stock", "minimum_stock",
-                  "reorder_quantity", "supplier", "lead_time_days", "unit_cost_inr",
-                  "storage_location", "criticality", "in_stock", "low_stock"):
+    for field in (
+        "part_ref_id",
+        "item_name",
+        "stock",
+        "minimum_stock",
+        "reorder_quantity",
+        "supplier",
+        "lead_time_days",
+        "unit_cost_inr",
+        "storage_location",
+        "criticality",
+        "in_stock",
+        "low_stock",
+    ):
         assert field in item, field
 
 
@@ -99,8 +110,11 @@ def test_reserve_records_a_negative_movement(client, db):
         .where(
             __import__("app.models.maintenance", fromlist=["StockMovement"]).StockMovement.spare_id
             == db.query(Spare).filter(Spare.part_ref_id == spare["part_ref_id"]).one().id
-        ).order_by(
-            __import__("app.models.maintenance", fromlist=["StockMovement"]).StockMovement.created_at.desc()
+        )
+        .order_by(
+            __import__(
+                "app.models.maintenance", fromlist=["StockMovement"]
+            ).StockMovement.created_at.desc()
         )
     ).first()
     assert movement.delta == -1
@@ -130,10 +144,10 @@ def test_reserve_moves_the_work_order_to_in_progress(client, db):
     if existing and existing.part_id == db.query(Part).filter(Part.code == part).one().id:
         work_order_id = existing.id
     else:
-        work_order_id = client.post("/api/v1/work-orders",
-                                    json=payload).json()["id"]
-    body = client.post(f"/api/v1/spares/{spare['part_ref_id']}/reserve",
-                       json={"work_order_id": work_order_id}).json()
+        work_order_id = client.post("/api/v1/work-orders", json=payload).json()["id"]
+    body = client.post(
+        f"/api/v1/spares/{spare['part_ref_id']}/reserve", json={"work_order_id": work_order_id}
+    ).json()
     assert body["work_order_status"] == "in_progress"
 
 
@@ -142,9 +156,11 @@ def test_reserve_is_audited(client, db):
     _set_stock(client, spare["part_ref_id"], 5)
     client.post(f"/api/v1/spares/{spare['part_ref_id']}/reserve", json={})
     row = db.scalars(
-        select(AuditLog).where(AuditLog.entity == "spare",
-                               AuditLog.action == "reserve",
-                               AuditLog.entity_id == spare["part_ref_id"])
+        select(AuditLog).where(
+            AuditLog.entity == "spare",
+            AuditLog.action == "reserve",
+            AuditLog.entity_id == spare["part_ref_id"],
+        )
     ).first()
     assert row is not None
     assert row.actor_name == "system"
@@ -158,8 +174,14 @@ def test_unknown_spare_reserve_is_404(client):
 def test_agencies_are_seeded_from_the_csv(client):
     items = client.get("/api/v1/agencies").json()["items"]
     assert len(items) == 6
-    assert {i["agency_ref_id"] for i in items} == {"MA001", "MA002", "MA003",
-                                                   "MA004", "MA005", "MA006"}
+    assert {i["agency_ref_id"] for i in items} == {
+        "MA001",
+        "MA002",
+        "MA003",
+        "MA004",
+        "MA005",
+        "MA006",
+    }
 
 
 def test_agency_free_slot_is_derived_from_capacity(client):
@@ -179,8 +201,9 @@ def test_idle_agency_free_slot_matches_the_seed_formula(client, db):
 
     items = client.get("/api/v1/agencies").json()["items"]
     widest = next(i for i in items if i["agency_ref_id"] == "MA001")
-    expected = agency_free_slot_days(widest["monthly_capacity_slots"],
-                                     booked_days=0, open_bookings=0)
+    expected = agency_free_slot_days(
+        widest["monthly_capacity_slots"], booked_days=0, open_bookings=0
+    )
     assert expected == max(1, math_ceil(30 / widest["monthly_capacity_slots"]))
 
 
@@ -194,17 +217,18 @@ def test_agency_handles_parts_is_the_reverse_assignment(client):
     """Rule 15: engine→engine MRO, hyd→hydraulics, radar→avionics."""
     items = client.get("/api/v1/agencies").json()["items"]
     handled = {part: i["agency_ref_id"] for i in items for part in i["handles_parts"]}
-    assert handled["engine"] == "MA003"     # specialisation 'engine'
-    assert handled["hyd"] == "MA005"        # specialisation 'hydraulics'
-    assert handled["radar"] == "MA004"      # specialisation 'avionics'
+    assert handled["engine"] == "MA003"  # specialisation 'engine'
+    assert handled["hyd"] == "MA005"  # specialisation 'hydraulics'
+    assert handled["radar"] == "MA004"  # specialisation 'avionics'
     # gear and fuel have no specialisation match -> cheapest of the general pool
     assert handled["gear"] == handled["fuel"] == "MA002"
 
 
 def test_booking_returns_the_rule_24_arithmetic(client, db):
     agency = db.query(Agency).filter(Agency.agency_ref_id == "MA001").one()
-    response = client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                           json={"aircraft": "Fighter-01", "part": "engine"})
+    response = client.post(
+        f"/api/v1/agencies/{agency.id}/bookings", json={"aircraft": "Fighter-01", "part": "engine"}
+    )
     if response.status_code == 409:
         pytest.skip("MA001 already full from an earlier booking test")
     assert response.status_code == 201
@@ -223,17 +247,26 @@ def test_a_full_agency_reports_no_slot_available(client, db):
     A purpose-made agency keeps the test independent of what other tests booked.
     13-day turnarounds: 30 / 13 = 2 slots, the third must be refused.
     """
-    agency = Agency(agency_ref_id="MA900", name="Capacity Test Depot",
-                    type="Test", location="Base-A", specialisation="general",
-                    turnaround_days=13, monthly_capacity_slots=40,
-                    cost_multiplier=1.0, free_slot_days=1)
+    agency = Agency(
+        agency_ref_id="MA900",
+        name="Capacity Test Depot",
+        type="Test",
+        location="Base-A",
+        specialisation="general",
+        turnaround_days=13,
+        monthly_capacity_slots=40,
+        cost_multiplier=1.0,
+        free_slot_days=1,
+    )
     db.add(agency)
     db.commit()
     try:
         codes = []
         for _ in range(4):
-            response = client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                                   json={"aircraft": "Fighter-02", "part": "engine"})
+            response = client.post(
+                f"/api/v1/agencies/{agency.id}/bookings",
+                json={"aircraft": "Fighter-02", "part": "engine"},
+            )
             codes.append(response.status_code)
             if response.status_code == 409:
                 assert response.json()["error"]["code"] == "NO_SLOT_AVAILABLE"
@@ -254,8 +287,9 @@ def test_booking_eta_is_start_plus_total_days(client, db):
     from datetime import date, timedelta
 
     agency = db.query(Agency).filter(Agency.agency_ref_id == "MA006").one()
-    response = client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                           json={"aircraft": "Fighter-06", "part": "hyd"})
+    response = client.post(
+        f"/api/v1/agencies/{agency.id}/bookings", json={"aircraft": "Fighter-06", "part": "hyd"}
+    )
     if response.status_code == 409:
         pytest.skip("MA006 already full from an earlier booking test")
     body = response.json()
@@ -265,10 +299,12 @@ def test_booking_eta_is_start_plus_total_days(client, db):
 
 def test_booking_is_audited_with_the_eta(client, db):
     agency = db.query(Agency).first()
-    client.post(f"/api/v1/agencies/{agency.id}/bookings",
-                json={"aircraft": "Fighter-03", "part": "gear"})
+    client.post(
+        f"/api/v1/agencies/{agency.id}/bookings", json={"aircraft": "Fighter-03", "part": "gear"}
+    )
     row = db.scalars(
-        select(AuditLog).where(AuditLog.entity == "agency", AuditLog.action == "book")
+        select(AuditLog)
+        .where(AuditLog.entity == "agency", AuditLog.action == "book")
         .order_by(AuditLog.at.desc())
     ).first()
     assert row is not None
@@ -277,9 +313,12 @@ def test_booking_is_audited_with_the_eta(client, db):
 
 
 def test_unknown_agency_booking_is_404(client):
-    assert client.post("/api/v1/agencies/99999/bookings",
-                       json={"aircraft": "Fighter-01", "part": "engine"}
-                       ).status_code == 404
+    assert (
+        client.post(
+            "/api/v1/agencies/99999/bookings", json={"aircraft": "Fighter-01", "part": "engine"}
+        ).status_code
+        == 404
+    )
 
 
 # ── 39 alerts ──────────────────────────────────────────────────────────────────
@@ -293,8 +332,7 @@ def test_alert_fields(client):
     items = client.get("/api/v1/alerts").json()["items"]
     if not items:
         pytest.skip("no alerts seeded")
-    for field in ("id", "aircraft", "part", "level", "message",
-                  "acknowledged", "created_at"):
+    for field in ("id", "aircraft", "part", "level", "message", "acknowledged", "created_at"):
         assert field in items[0], field
 
 
@@ -334,7 +372,8 @@ def test_ack_is_audited(client, db):
         pytest.skip("no unacknowledged alerts")
     client.post(f"/api/v1/alerts/{items[0]['id']}/ack", json={})
     row = db.scalars(
-        select(AuditLog).where(AuditLog.entity == "alert", AuditLog.action == "ack")
+        select(AuditLog)
+        .where(AuditLog.entity == "alert", AuditLog.action == "ack")
         .order_by(AuditLog.at.desc())
     ).first()
     assert row is not None
@@ -378,9 +417,15 @@ def test_back_in_service_matches_the_documented_formula(client, db):
     """End-to-end check of rule 24 against the agency and spare in the response."""
     detail = client.get("/api/v1/aircraft/Fighter-01/parts/hyd").json()
     agency, spare = detail["agency"], detail["spare"]
-    assert detail["back_in_service_days"] == back_in_service_breakdown(
-        agency["free_slot_days"], agency["turnaround_days"],
-        spare["lead_time_days"], spare["stock"])["total"]
+    assert (
+        detail["back_in_service_days"]
+        == back_in_service_breakdown(
+            agency["free_slot_days"],
+            agency["turnaround_days"],
+            spare["lead_time_days"],
+            spare["stock"],
+        )["total"]
+    )
 
 
 def _any_open_alert(client) -> int:
