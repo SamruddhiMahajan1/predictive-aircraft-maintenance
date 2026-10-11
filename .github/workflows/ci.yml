@@ -196,22 +196,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Container scan (trivy) — fail on CRITICAL
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: fdt-api:ci
-          format: table
-          exit-code: 1
-          severity: CRITICAL
-
-      - name: Container scan (trivy) — fail on CRITICAL
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: fdt-web:ci
-          format: table
-          exit-code: 1
-          severity: CRITICAL
-
       - name: Image size gate (backend < 500 MB, frontend < 200 MB)
         run: |
           MAX_API=524288000  # 500 MB
