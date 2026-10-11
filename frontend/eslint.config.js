@@ -1,3 +1,5 @@
+import reactHooks from 'eslint-plugin-react-hooks';
+
 export default [
   {
     files: ['**/*.js', '**/*.jsx'],
@@ -14,7 +16,7 @@ export default [
       },
     },
     plugins: {
-      'react-hooks': require('eslint-plugin-react-hooks'),
+      'react-hooks': reactHooks,
     },
     rules: {
       'react-hooks/rules-of-hooks': 'error',

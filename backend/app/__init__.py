@@ -16,6 +16,7 @@ defaults, not mandates: an explicit operator setting is always honoured.
 This cannot live in render.yaml alone — dashboard-created services never see
 blueprint env vars, so the one deployment that needed it most never got it.
 """
+
 from __future__ import annotations
 
 import os

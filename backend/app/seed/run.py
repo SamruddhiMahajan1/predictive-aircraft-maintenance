@@ -3,6 +3,7 @@
 Migrations own the schema; this owns the data. Re-running never duplicates and
 never touches rows created at runtime (docs/10 Phase 2).
 """
+
 from __future__ import annotations
 
 import logging

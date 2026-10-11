@@ -1,4 +1,5 @@
 """Application settings. Every env var is prefixed FDT_ (docs/02 §6.1)."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -150,7 +151,7 @@ class Settings(BaseSettings):
             return v
         for bare in ("postgres://", "postgresql://"):
             if v.startswith(bare):
-                return f"postgresql+psycopg://{v[len(bare):]}"
+                return f"postgresql+psycopg://{v[len(bare) :]}"
         return v
 
     @property
@@ -169,10 +170,13 @@ class Settings(BaseSettings):
     _ML_FILES: ClassVar[dict[str, tuple[str, str, str, str]]] = {
         # The contract for this variant names its own baselines file
         # (regime_baselines_fd001.json), so no default is guessed here.
-        "full": ("xgboost_fd001_full.json", "feature_contract_fd001_full.json",
-                 "", ""),
-        "holdout": ("xgboost_fd001_rul.json", "feature_contract.json",
-                    "scaler_fd001.pkl", "baseline_stats.json"),
+        "full": ("xgboost_fd001_full.json", "feature_contract_fd001_full.json", "", ""),
+        "holdout": (
+            "xgboost_fd001_rul.json",
+            "feature_contract.json",
+            "scaler_fd001.pkl",
+            "baseline_stats.json",
+        ),
         # The pooled candidate: trained on FD001+FD002+FD003+FD004, 30 features
         # (the 29 plus regime_global), z-scored against four subsets of baselines. Its
         # contract names its own baselines file, so none is guessed here.
@@ -189,8 +193,7 @@ class Settings(BaseSettings):
             names = self._ML_FILES[self.ml_variant]
         except KeyError as exc:  # pragma: no cover - guarded by the validator below
             raise ValueError(
-                f"unknown ml_variant {self.ml_variant!r}; "
-                f"expected one of {sorted(self._ML_FILES)}"
+                f"unknown ml_variant {self.ml_variant!r}; expected one of {sorted(self._ML_FILES)}"
             ) from exc
         name = names[index]
         return str(self.ml_dir / name) if name else ""

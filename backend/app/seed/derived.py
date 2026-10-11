@@ -1,4 +1,5 @@
 """Derived state — part catalog, health, spare/agency wiring, work orders, alerts."""
+
 from __future__ import annotations
 
 import logging
@@ -56,16 +57,22 @@ def seed_part_catalog(db: Session) -> int:
 
     def cheapest(candidates: list) -> object | None:
         # the general pool has no specialisation match, so rank it by cost
-        return min(candidates, key=lambda a: float(a.cost_multiplier) * a.turnaround_days,
-                   default=None)
+        return min(
+            candidates, key=lambda a: float(a.cost_multiplier) * a.turnaround_days, default=None
+        )
 
     for code, label, order, simulated, method, spec in PART_CATALOG:
         agency = cheapest(by_spec.get(spec) or by_spec.get("general") or [])
         part = db.scalar(select(Part).where(Part.code == code))
         if part is None:
-            part = Part(code=code, label=label, sort_order=order,
-                        is_simulated=simulated, method=method,
-                        agency_id=agency.id if agency else None)
+            part = Part(
+                code=code,
+                label=label,
+                sort_order=order,
+                is_simulated=simulated,
+                method=method,
+                agency_id=agency.id if agency else None,
+            )
             db.add(part)
         else:
             part.label = label
@@ -85,11 +92,18 @@ def seed_aircraft(db: Session) -> int:
             continue
         aircraft = db.scalar(select(Aircraft).where(Aircraft.code == code))
         if aircraft is None:
-            aircraft = Aircraft(code=code, name=code, aircraft_ref_id=ref.id,
-                                cmapss_unit_id=unit, tail_number=ref.tail_number,
-                                aircraft_model=ref.aircraft_model,
-                                home_base=ref.home_base, demo_offset=offset,
-                                current_cycle=offset + 1, rul=125)
+            aircraft = Aircraft(
+                code=code,
+                name=code,
+                aircraft_ref_id=ref.id,
+                cmapss_unit_id=unit,
+                tail_number=ref.tail_number,
+                aircraft_model=ref.aircraft_model,
+                home_base=ref.home_base,
+                demo_offset=offset,
+                current_cycle=offset + 1,
+                rul=125,
+            )
             db.add(aircraft)
             db.flush()
         count += 1
@@ -108,17 +122,25 @@ def seed_aircraft_parts(db: Session) -> int:
     snags_by = {}
     today = date.today()
     for snag in db.scalars(select(Snag)):
-        snags_by.setdefault(snag.aircraft_ref_id, []).append({
-            "severity": snag.severity,
-            "age_months": _months_between(snag.date_reported, today) if snag.date_reported else 0.0,
-        })
+        snags_by.setdefault(snag.aircraft_ref_id, []).append(
+            {
+                "severity": snag.severity,
+                "age_months": _months_between(snag.date_reported, today)
+                if snag.date_reported
+                else 0.0,
+            }
+        )
     records_by = {}
     for record in db.scalars(select(TechnicalRecord)):
-        records_by.setdefault(record.aircraft_ref_id, []).append({
-            "fault_type": record.fault_type,
-            "age_months": _months_between(record.event_date, today) if record.event_date else 0.0,
-            "downtime_hours": float(record.downtime_hours or 0),
-        })
+        records_by.setdefault(record.aircraft_ref_id, []).append(
+            {
+                "fault_type": record.fault_type,
+                "age_months": _months_between(record.event_date, today)
+                if record.event_date
+                else 0.0,
+                "downtime_hours": float(record.downtime_hours or 0),
+            }
+        )
 
     # p95 burden per part across the whole fleet, so health is fleet-relative
     p95: dict[str, float] = {}
@@ -144,18 +166,23 @@ def seed_aircraft_parts(db: Session) -> int:
                 )
             )
             if row is None:
-                row = AircraftPart(aircraft_id=aircraft.id, part_id=part.id,
-                                   health=1.0, risk_level="healthy",
-                                   is_simulated=part.is_simulated)
+                row = AircraftPart(
+                    aircraft_id=aircraft.id,
+                    part_id=part.id,
+                    health=1.0,
+                    risk_level="healthy",
+                    is_simulated=part.is_simulated,
+                )
                 db.add(row)
 
             if code == "engine":
-                continue          # ML owns the engine; filled on first tick
+                continue  # ML owns the engine; filled on first tick
 
             score = maintenance_burden(
                 records_by.get(aircraft.aircraft_ref_id, []),
                 snags_by.get(aircraft.aircraft_ref_id, []),
-                code, p95[code],
+                code,
+                p95[code],
             )
             health = burden_health(score)
             row.health = health
@@ -171,7 +198,8 @@ def seed_aircraft_parts(db: Session) -> int:
                 row.back_in_service_days = back_in_service_breakdown(
                     agency.free_slot_days if agency else 1,
                     agency.turnaround_days if agency else 1,
-                    spare.lead_time_days, spare.stock,
+                    spare.lead_time_days,
+                    spare.stock,
                 )["total"]
             count += 1
     db.flush()
@@ -181,9 +209,7 @@ def seed_aircraft_parts(db: Session) -> int:
 def _spare_for_part(db: Session, code: str, part: Part) -> Spare | None:
     if code == "engine":
         return None
-    component = {
-        "radar": None, "gear": "Fan", "hyd": None, "fuel": None
-    }.get(code)
+    component = {"radar": None, "gear": "Fan", "hyd": None, "fuel": None}.get(code)
     stmt = select(Spare)
     if component:
         stmt = stmt.where(Spare.component_name == component)
@@ -202,13 +228,12 @@ def _percentile(values: list[float], pct: float) -> float | None:
 def seed_work_orders(db: Session) -> int:
     """maintenance_schedule.csv with its status vocabulary mapped (docs/01 §7)."""
     from ..seed.loaders.base import read_csv
+
     rows = read_csv("maintenance_schedule.csv")
     refs = {a.aircraft_id: a for a in db.scalars(select(AircraftRef))}
     components = {c.component_id: c for c in db.scalars(select(ComponentRef))}
     parts = {p.code: p for p in db.scalars(select(Part))}
-    aircraft_by_ref = {
-        a.aircraft_ref_id: a for a in db.scalars(select(Aircraft))
-    }
+    aircraft_by_ref = {a.aircraft_ref_id: a for a in db.scalars(select(Aircraft))}
 
     count = 0
     for row in rows:
@@ -231,18 +256,21 @@ def seed_work_orders(db: Session) -> int:
             continue
 
         priority = (row.get("priority") or "Medium").lower()
-        db.add(WorkOrder(
-            reference=f"WO-{len(rows) + count:04d}",
-            aircraft_id=aircraft.id, part_id=part.id,
-            action=TASK_TYPE_TO_ACTION.get(row.get("task_type"), "Routine check"),
-            due_date=_parse_date(row.get("due_date")),
-            due_cycle=_parse_int(row.get("due_cycles")),
-            status="open",
-            priority=priority if priority in ("low", "medium", "high") else "medium",
-            source_ref=row.get("schedule_id"),
-            created_by=None,
-        ))
-        db.flush()   # autoflush is off, so the uniqueness check needs this
+        db.add(
+            WorkOrder(
+                reference=f"WO-{len(rows) + count:04d}",
+                aircraft_id=aircraft.id,
+                part_id=part.id,
+                action=TASK_TYPE_TO_ACTION.get(row.get("task_type"), "Routine check"),
+                due_date=_parse_date(row.get("due_date")),
+                due_cycle=_parse_int(row.get("due_cycles")),
+                status="open",
+                priority=priority if priority in ("low", "medium", "high") else "medium",
+                source_ref=row.get("schedule_id"),
+                created_by=None,
+            )
+        )
+        db.flush()  # autoflush is off, so the uniqueness check needs this
         count += 1
     db.flush()
     return count
@@ -270,9 +298,7 @@ def seed_alerts(db: Session) -> int:
     """One alert per non-healthy part at seed time (docs/03 §9)."""
     count = 0
     for aircraft, row in db.execute(
-        select(Aircraft, AircraftPart).join(
-            AircraftPart, AircraftPart.aircraft_id == Aircraft.id
-        )
+        select(Aircraft, AircraftPart).join(AircraftPart, AircraftPart.aircraft_id == Aircraft.id)
     ).tuples():
         if row.risk_level == "healthy":
             continue
@@ -284,12 +310,17 @@ def seed_alerts(db: Session) -> int:
             )
         ):
             continue
-        db.add(Alert(
-            aircraft_id=aircraft.id, part_id=row.part_id, level=row.risk_level,
-            message=f"{row.part.label} health {float(row.health):.2f} — "
-                    f"{'Replace now' if row.risk_level == 'critical' else 'Plan inspection'}.",
-            cycle=aircraft.current_cycle, health=row.health,
-        ))
+        db.add(
+            Alert(
+                aircraft_id=aircraft.id,
+                part_id=row.part_id,
+                level=row.risk_level,
+                message=f"{row.part.label} health {float(row.health):.2f} — "
+                f"{'Replace now' if row.risk_level == 'critical' else 'Plan inspection'}.",
+                cycle=aircraft.current_cycle,
+                health=row.health,
+            )
+        )
         count += 1
     db.flush()
     return count
@@ -318,7 +349,12 @@ def reconcile_health(db: Session) -> list[str]:
 
 
 __all__ = [
-    "seed_part_catalog", "seed_aircraft", "seed_aircraft_parts",
-    "seed_work_orders", "seed_alerts", "reconcile_health",
-    "PART_CATALOG", "FLEET_BINDING",
+    "seed_part_catalog",
+    "seed_aircraft",
+    "seed_aircraft_parts",
+    "seed_work_orders",
+    "seed_alerts",
+    "reconcile_health",
+    "PART_CATALOG",
+    "FLEET_BINDING",
 ]

@@ -1,4 +1,5 @@
 """Maintenance tables — agencies, spares, work orders, bookings, stock, alerts."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -77,8 +78,7 @@ class Spare(Base):
     __table_args__ = (
         CheckConstraint("stock >= 0", name="spare_stock"),
         Index("ix_spare_component_name", "component_name"),
-        Index("ix_spare_low_stock", "criticality",
-              postgresql_where=text("stock <= minimum_stock")),
+        Index("ix_spare_low_stock", "criticality", postgresql_where=text("stock <= minimum_stock")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -111,8 +111,13 @@ class WorkOrder(Base):
     __table_args__ = (
         CheckConstraint("status <> 'done' OR completed_at IS NOT NULL", name="wo_completed"),
         # spec 35 permits one open order per aircraft+part — enforced, not convention
-        Index("uq_wo_open_aircraft_part", "aircraft_id", "part_id",
-              unique=True, postgresql_where=text("status <> 'done'")),
+        Index(
+            "uq_wo_open_aircraft_part",
+            "aircraft_id",
+            "part_id",
+            unique=True,
+            postgresql_where=text("status <> 'done'"),
+        ),
         Index("ix_wo_aircraft", "aircraft_id", "status"),
         Index("ix_wo_open_due", "due_date", postgresql_where=text("status <> 'done'")),
     )
@@ -129,8 +134,14 @@ class WorkOrder(Base):
     source_ref: Mapped[str | None] = mapped_column(String(12))
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.utcnow(),
+        onupdate=lambda: datetime.utcnow(),
+    )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
@@ -145,8 +156,7 @@ class AgencyBooking(Base):
 
     __table_args__ = (
         Index("ix_booking_agency", "agency_id", "eta_date"),
-        Index("ix_booking_open", "eta_date",
-              postgresql_where=text("completed_at IS NULL")),
+        Index("ix_booking_open", "eta_date", postgresql_where=text("completed_at IS NULL")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -163,7 +173,9 @@ class AgencyBooking(Base):
     eta_date: Mapped[date] = mapped_column(Date)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[int | None] = mapped_column(Integer)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
 
     agency: Mapped[Agency] = relationship(back_populates="bookings")
     aircraft: Mapped[Aircraft] = relationship(back_populates="bookings")
@@ -187,7 +199,9 @@ class StockMovement(Base):
     )
     user_id: Mapped[int | None] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
 
     spare: Mapped[Spare] = relationship(back_populates="movements")
     work_order: Mapped[WorkOrder | None] = relationship(back_populates="movements")

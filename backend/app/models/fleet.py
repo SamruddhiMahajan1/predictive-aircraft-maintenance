@@ -1,4 +1,5 @@
 """Fleet core — aircraft, part catalog, aircraft_part state."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -42,7 +43,7 @@ class Aircraft(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    code: Mapped[str] = mapped_column(String(16), unique=True)      # Fighter-01
+    code: Mapped[str] = mapped_column(String(16), unique=True)  # Fighter-01
     name: Mapped[str] = mapped_column(String(48))
     aircraft_ref_id: Mapped[int] = mapped_column(ForeignKey("aircraft_ref.id"), unique=True)
     cmapss_unit_id: Mapped[int] = mapped_column(SmallInteger, unique=True)
@@ -57,8 +58,14 @@ class Aircraft(Base):
     risk_level: Mapped[str] = mapped_column(risk_level_enum, default="healthy")
     demo_offset: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.utcnow(),
+        onupdate=lambda: datetime.utcnow(),
+    )
 
     aircraft_ref: Mapped[AircraftRef] = relationship(back_populates="aircraft")
     parts: Mapped[list[AircraftPart]] = relationship(
@@ -103,9 +110,7 @@ class Part(Base):
         back_populates="part", cascade="all, delete-orphan"
     )
     work_orders: Mapped[list[WorkOrder]] = relationship(back_populates="part")
-    alerts: Mapped[list[Alert]] = relationship(
-        back_populates="part", cascade="all, delete-orphan"
-    )
+    alerts: Mapped[list[Alert]] = relationship(back_populates="part", cascade="all, delete-orphan")
     bookings: Mapped[list[AgencyBooking]] = relationship(back_populates="part")
     snapshots: Mapped[list[HealthSnapshot]] = relationship(back_populates="part")
 
@@ -135,7 +140,11 @@ class AircraftPart(Base):
     agency_id: Mapped[int | None] = mapped_column(ForeignKey("agency.id"))
     back_in_service_days: Mapped[int | None] = mapped_column(Integer)
     is_simulated: Mapped[bool] = mapped_column(Boolean, default=True)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow(), onupdate=lambda: datetime.utcnow())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.utcnow(),
+        onupdate=lambda: datetime.utcnow(),
+    )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="parts")
     part: Mapped[Part] = relationship(back_populates="aircraft_part")

@@ -3,13 +3,16 @@
 // so firing them back-to-back meant the aircraft response always lost the
 // seq race and `applyDetail()` never ran.
 
+import { test, describe } from 'node:test';
+import assert from 'node:assert';
+
 function createSequencer() {
   let seq = 0;
   return () => ++seq;
 }
 
 describe('server sequencing (FE3)', () => {
-  it('independent aircraft/engine sequences do not clobber each other', () => {
+  test('independent aircraft/engine sequences do not clobber each other', () => {
     const aircraftSeq = createSequencer();
     const engineSeq = createSequencer();
 
@@ -18,19 +21,14 @@ describe('server sequencing (FE3)', () => {
     const a2 = aircraftSeq();
     const e2 = engineSeq();
 
-    // Each sequence advances independently
+    // Each sequence advances independently starting from 1
     assert.strictEqual(a1, 1);
-    assert.strictEqual(e1, 2);
-    assert.strictEqual(a2, 3);
-    assert.strictEqual(e2, 4);
-
-    // A response with seq=1 (first aircraft request) is still valid for aircraft
-    // even after engineSeq advanced to 2
-    assert.strictEqual(a1, 1);
-    assert.strictEqual(e1, 2);
+    assert.strictEqual(e1, 1);
+    assert.strictEqual(a2, 2);
+    assert.strictEqual(e2, 2);
   });
 
-  it('stale sequence is detected correctly', () => {
+  test('stale sequence is detected correctly', () => {
     let seq = 0;
     function next() { return ++seq; }
 
@@ -46,7 +44,7 @@ describe('server sequencing (FE3)', () => {
     assert.strictEqual(req2 === current, false);
   });
 
-  it('fresh sequence matches', () => {
+  test('fresh sequence matches', () => {
     let seq = 0;
     function next() { return ++seq; }
 

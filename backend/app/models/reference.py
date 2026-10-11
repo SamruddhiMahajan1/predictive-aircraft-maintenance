@@ -1,4 +1,5 @@
 """Reference tables — loaded verbatim from the Drive CSVs, never mutated at runtime."""
+
 from __future__ import annotations
 
 from datetime import date
@@ -108,15 +109,14 @@ class TechnicalRecord(Base):
     __table_args__ = (
         Index("ix_techrec_aircraft", "aircraft_ref_id", "event_date"),
         # partial: only ~60% of rows carry a fault_type, and it drives non-engine health
-        Index("ix_techrec_fault", "fault_type",
-              postgresql_where=text("fault_type IS NOT NULL")),
+        Index("ix_techrec_fault", "fault_type", postgresql_where=text("fault_type IS NOT NULL")),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     record_id: Mapped[str] = mapped_column(String(12), unique=True)
     aircraft_ref_id: Mapped[int] = mapped_column(ForeignKey("aircraft_ref.id"))
     component_ref_id: Mapped[int | None] = mapped_column(ForeignKey("component_ref.id"))
-    agency_ref_id: Mapped[str | None] = mapped_column(String(8))   # soft ref, see docs/05 §3.4
+    agency_ref_id: Mapped[str | None] = mapped_column(String(8))  # soft ref, see docs/05 §3.4
     part_ref_id: Mapped[str | None] = mapped_column(String(8))
     event_date: Mapped[date] = mapped_column(Date)
     maintenance_type: Mapped[str | None] = mapped_column(String(32))

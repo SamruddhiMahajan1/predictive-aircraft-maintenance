@@ -5,6 +5,7 @@ unaudited, which is how a +13.6% period error and a silently-failing tick both w
 unreported: `status()` returned only what had been configured, never what had been
 achieved.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,8 +30,7 @@ def test_status_reports_what_was_achieved_not_only_what_was_configured(engine):
     endpoint able to show it.
     """
     status = engine.status()
-    for field in ("last_tick_ms", "achieved_interval_seconds", "drift_pct",
-                  "consecutive_failures"):
+    for field in ("last_tick_ms", "achieved_interval_seconds", "drift_pct", "consecutive_failures"):
         assert field in status, f"status() does not report {field}"
     assert status["interval_seconds"] == engine.settings.demo_tick_seconds
     # Before any tick has run these are legitimately unknown, not zero.
@@ -58,7 +58,7 @@ def test_drift_is_reported_when_the_period_is_wrong(engine):
     """Drift is signed, so a slow loop and a fast one are distinguishable."""
     configured = engine.settings.demo_tick_seconds
     engine._last_tick_started = 1000.0
-    achieved = configured * 1.136          # the measured pre-fix behaviour
+    achieved = configured * 1.136  # the measured pre-fix behaviour
     engine._record_success(elapsed_ms=200.0, started=1000.0 + achieved)
 
     assert engine.achieved_interval_seconds == pytest.approx(achieved, abs=1e-3)
@@ -87,8 +87,7 @@ def test_consecutive_failures_are_counted_and_reset(engine, caplog):
             engine._record_failure(RuntimeError("boom"))
     assert engine.consecutive_failures == 3
     assert engine.status()["consecutive_failures"] == 3
-    early = [r for r in caplog.records if "boom" in r.getMessage()
-             or r.exc_info is not None]
+    early = [r for r in caplog.records if "boom" in r.getMessage() or r.exc_info is not None]
     assert len(early) >= 3, "the first failures must be logged, not throttled away"
 
     engine._record_success(elapsed_ms=10.0, started=3000.0)
@@ -144,8 +143,9 @@ def test_a_lock_exists_and_is_used_by_both_entry_points():
     assert isinstance(engine._tick_lock, asyncio.Lock)
     source = inspect.getsource(ReplayEngine.tick_once)
     assert "_tick_lock" in source, "tick_once bypasses the lock"
-    assert "_tick_lock" in inspect.getsource(ReplayEngine._loop), \
+    assert "_tick_lock" in inspect.getsource(ReplayEngine._loop), (
         "the replay loop bypasses the lock"
+    )
 
 
 def test_the_blocking_pass_is_offloaded_from_the_event_loop():
@@ -159,5 +159,6 @@ def test_the_blocking_pass_is_offloaded_from_the_event_loop():
 
     source = inspect.getsource(ReplayEngine._tick)
     assert "asyncio.to_thread" in source, "the blocking pass runs on the event loop"
-    assert inspect.iscoroutinefunction(ReplayEngine._tick_sync) is False, \
+    assert inspect.iscoroutinefunction(ReplayEngine._tick_sync) is False, (
         "_tick_sync is documented as blocking; making it async would reintroduce the stall"
+    )

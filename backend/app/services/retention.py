@@ -33,6 +33,7 @@ through `on_conflict_do_update` on `(aircraft_id, cycle)`. Removing rows can onl
 *remove* conflict targets, never introduce one, so an engine that wraps back to a
 pruned cycle inserts cleanly instead of updating.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -74,9 +75,7 @@ TARGETS: tuple[tuple[Any, InstrumentedAttribute], ...] = (
 )
 
 
-def prune_once(
-    settings: Settings | None = None, *, now: datetime | None = None
-) -> dict[str, int]:
+def prune_once(settings: Settings | None = None, *, now: datetime | None = None) -> dict[str, int]:
     """Delete rows older than the horizon. Returns per-table counts; `{}` if disabled.
 
     Blocking: call it from a thread. The cutoff is an aware UTC datetime, so it is sent
@@ -148,7 +147,8 @@ class RetentionPruner:
             self.passes += 1
             log.info(
                 "retention pass %d in %sms: %s",
-                self.passes, t.ms,
+                self.passes,
+                t.ms,
                 ", ".join(f"{k}={v}" for k, v in counts.items()) or "nothing to delete",
             )
 

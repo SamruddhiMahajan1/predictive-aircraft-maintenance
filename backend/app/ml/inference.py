@@ -1,4 +1,5 @@
 """RUL and component-health inference (docs/08 §6)."""
+
 from __future__ import annotations
 
 import time
@@ -23,8 +24,7 @@ Z_HEALTHY_ANCHOR = 1.15
 Z_EOL_ANCHOR = 5.30
 
 
-def _classify(window: list[dict[str, Any]], h: model_store.ModelHandle,
-              subset: str | None) -> int:
+def _classify(window: list[dict[str, Any]], h: model_store.ModelHandle, subset: str | None) -> int:
     """Nearest-centroid regime for the latest cycle. 0 when no centroids are shipped."""
     from .features import classify_regime
 
@@ -197,7 +197,7 @@ def _fallback_result(cycle: int, started: float, *, fallback_on: str) -> dict[st
             "s6_imputed": False,
             "imputed_sensors": [],
             "fallback": True,
-            "degraded": True,       # never guess quietly (docs/14 §9)
+            "degraded": True,  # never guess quietly (docs/14 §9)
             "reason": fallback_on,
         },
         "latency_ms": round((time.perf_counter() - started) * 1000, 2),

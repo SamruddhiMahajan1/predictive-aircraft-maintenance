@@ -1,4 +1,5 @@
 """Append-only time-series tables — one row per aircraft per cycle."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -21,8 +22,23 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from ..db.session import Base
 from .fleet import risk_level_enum
 
-SENSOR_COLUMNS = ("s2", "s3", "s4", "s6", "s7", "s8", "s9", "s11",
-                  "s12", "s13", "s14", "s15", "s17", "s20", "s21")
+SENSOR_COLUMNS = (
+    "s2",
+    "s3",
+    "s4",
+    "s6",
+    "s7",
+    "s8",
+    "s9",
+    "s11",
+    "s12",
+    "s13",
+    "s14",
+    "s15",
+    "s17",
+    "s20",
+    "s21",
+)
 
 
 class HealthSnapshot(Base):
@@ -41,7 +57,9 @@ class HealthSnapshot(Base):
     cycle: Mapped[int] = mapped_column(Integer)
     health: Mapped[float] = mapped_column(Numeric(4, 3))
     risk_level: Mapped[str] = mapped_column(risk_level_enum)
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="snapshots")
     part: Mapped[Part] = relationship(back_populates="snapshots")
@@ -80,7 +98,9 @@ class EngineTelemetry(Base):
     s21: Mapped[float] = mapped_column(Numeric(12, 4))
     regime: Mapped[int] = mapped_column(SmallInteger, default=0)
     source: Mapped[str] = mapped_column(String(16), default="cmapss")
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="telemetry")
 
@@ -106,7 +126,9 @@ class ComponentHealth(Base):
     lpt: Mapped[float] = mapped_column(Numeric(4, 3))
     combustor: Mapped[float | None] = mapped_column(Numeric(4, 3))
     lpc: Mapped[float | None] = mapped_column(Numeric(4, 3))
-    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    recorded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="component_health")
 
@@ -131,5 +153,7 @@ class MlPrediction(Base):
     deviation: Mapped[dict] = mapped_column(JSONB)
     model_version: Mapped[str] = mapped_column(String(48))
     latency_ms: Mapped[float] = mapped_column(Numeric(8, 2))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.utcnow()
+    )
     aircraft: Mapped[Aircraft] = relationship(back_populates="predictions")

@@ -1,4 +1,5 @@
 """Database base, session and the unit-of-work transaction boundary."""
+
 from __future__ import annotations
 
 from collections.abc import Iterator
@@ -46,11 +47,7 @@ def get_engine(settings: Settings | None = None):
         # instead of hanging a request (and Render's health check) for the OS
         # default. sqlite has no such parameter, so only send it for Postgres.
         is_postgres = str(s.database_url).startswith(("postgresql", "postgres"))
-        connect_args = (
-            {"connect_timeout": 5, "application_name": "fdt-api"}
-            if is_postgres
-            else {}
-        )
+        connect_args = {"connect_timeout": 5, "application_name": "fdt-api"} if is_postgres else {}
         _engine = create_engine(
             s.database_url,
             echo=s.db_echo,
@@ -95,9 +92,7 @@ def bound_threadpool(capacity: int | None = None) -> None:
 def get_sessionmaker(settings: Settings | None = None) -> sessionmaker:
     global _Session
     if _Session is None:
-        _Session = sessionmaker(
-            bind=get_engine(settings), autoflush=False, expire_on_commit=False
-        )
+        _Session = sessionmaker(bind=get_engine(settings), autoflush=False, expire_on_commit=False)
     return _Session
 
 

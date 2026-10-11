@@ -1,4 +1,5 @@
 """Import every model so Alembic autogenerate sees the full metadata."""
+
 from .alert import Alert
 from .auth import AuditLog
 from .fleet import Aircraft, AircraftPart, Part, RiskLevel
@@ -22,10 +23,28 @@ from .telemetry import (
 )
 
 __all__ = [
-    "Alert", "AuditLog",
-    "Aircraft", "AircraftPart", "Part", "RiskLevel",
-    "Agency", "AgencyBooking", "PriorityLevel", "Spare", "StockMovement",
-    "StockReason", "WorkOrder", "WorkOrderStatus",
-    "AircraftRef", "ComponentRef", "FlightOpsMonthly", "Snag", "TechnicalRecord",
-    "SENSOR_COLUMNS", "ComponentHealth", "EngineTelemetry", "HealthSnapshot", "MlPrediction",
+    "Alert",
+    "AuditLog",
+    "Aircraft",
+    "AircraftPart",
+    "Part",
+    "RiskLevel",
+    "Agency",
+    "AgencyBooking",
+    "PriorityLevel",
+    "Spare",
+    "StockMovement",
+    "StockReason",
+    "WorkOrder",
+    "WorkOrderStatus",
+    "AircraftRef",
+    "ComponentRef",
+    "FlightOpsMonthly",
+    "Snag",
+    "TechnicalRecord",
+    "SENSOR_COLUMNS",
+    "ComponentHealth",
+    "EngineTelemetry",
+    "HealthSnapshot",
+    "MlPrediction",
 ]

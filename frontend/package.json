@@ -11,7 +11,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview --port 4173",
-    "test": "node --test src/**/*.test.js",
+    "test": "node --test src/state/__tests__/*.test.js",
     "lint": "eslint src --ext .js,.jsx"
   },
   "dependencies": {

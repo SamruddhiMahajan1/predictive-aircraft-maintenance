@@ -1,4 +1,5 @@
 """Write-path schemas — work orders, spares, agencies, alerts, telemetry, ML."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -171,7 +172,7 @@ class SettingsIn(BaseModel):
 class TelemetryRow(BaseModel):
     cycle: int = Field(ge=1)
     settings: SettingsIn
-    sensors: dict[str, float]   # the 14 spec sensors; s6 optional
+    sensors: dict[str, float]  # the 14 spec sensors; s6 optional
 
 
 class TelemetryBatch(BaseModel):

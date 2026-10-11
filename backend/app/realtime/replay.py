@@ -1,4 +1,5 @@
 """Replay engine — one C-MAPSS cycle per aircraft every 1.2 s (docs/09 §1)."""
+
 from __future__ import annotations
 
 import asyncio
@@ -85,8 +86,7 @@ class ReplayEngine:
 
     def _record_success(self, elapsed_ms: float, started: float) -> None:
         if self.consecutive_failures:
-            log.info("replay recovered after %d consecutive failures",
-                     self.consecutive_failures)
+            log.info("replay recovered after %d consecutive failures", self.consecutive_failures)
         self.consecutive_failures = 0
         self.last_tick_ms = round(elapsed_ms, 2)
         if self._last_tick_started is not None:
@@ -100,8 +100,11 @@ class ReplayEngine:
     # ── lifecycle ─────────────────────────────────────────────────────────────
     async def start(self) -> None:
         if not self.settings.demo_mode or not cmapss.loaded:
-            log.info("replay engine not started (demo_mode=%s, cmapss=%s)",
-                     self.settings.demo_mode, cmapss.loaded)
+            log.info(
+                "replay engine not started (demo_mode=%s, cmapss=%s)",
+                self.settings.demo_mode,
+                cmapss.loaded,
+            )
             return
         self.running = True
         self.task = asyncio.create_task(self._loop(), name="replay")
@@ -167,11 +170,18 @@ class ReplayEngine:
             now = datetime.now(UTC)
             await bus.publish(cycle_tick(max(e.cycle for e in events)))
             for event in events:
-                await bus.publish(health_updated(
-                    event.code, event.aircraft_id, "engine", event.health,
-                    event.risk, event.prediction["rul"], event.cycle,
-                    model=event.prediction.get("model"),
-                ))
+                await bus.publish(
+                    health_updated(
+                        event.code,
+                        event.aircraft_id,
+                        "engine",
+                        event.health,
+                        event.risk,
+                        event.prediction["rul"],
+                        event.cycle,
+                        model=event.prediction.get("model"),
+                    )
+                )
                 if event.risk != event.previous_risk and event.risk != "healthy":
                     await self._raise_alert(event, now)
 
@@ -226,11 +236,11 @@ class ReplayEngine:
         next_cycle = aircraft.current_cycle + 1
         row = cmapss.row(unit, next_cycle)
 
-        if row is None:                                   # wrap at end of life
+        if row is None:  # wrap at end of life
             next_cycle = self._resume_cycle(unit)
             row = cmapss.row(unit, next_cycle)
             aircraft.current_cycle = next_cycle
-            EMA[aircraft.id] = EmaState.empty()          # reset smoothing (docs/09 §1.2)
+            EMA[aircraft.id] = EmaState.empty()  # reset smoothing (docs/09 §1.2)
             log.info("%s wrapped to cycle %d", aircraft.code, next_cycle)
 
         window = cmapss.window(unit, next_cycle, self.settings.ml_window)
@@ -305,17 +315,25 @@ class ReplayEngine:
                     existing.cycle = event.cycle
                 else:
                     existing = Alert(
-                        aircraft_id=event.aircraft_id, part_id=part.id,
-                        level=event.risk, message=message, cycle=event.cycle,
-                        health=event.health, created_at=now,
+                        aircraft_id=event.aircraft_id,
+                        part_id=part.id,
+                        level=event.risk,
+                        message=message,
+                        cycle=event.cycle,
+                        health=event.health,
+                        created_at=now,
                     )
                     db.add(existing)
                 db.commit()
                 return {
-                    "id": existing.id, "aircraft": event.code,
-                    "aircraft_id": event.aircraft_id, "part": "engine",
-                    "level": event.risk, "message": message,
-                    "health": event.health, "rul": event.prediction["rul"],
+                    "id": existing.id,
+                    "aircraft": event.code,
+                    "aircraft_id": event.aircraft_id,
+                    "part": "engine",
+                    "level": event.risk,
+                    "message": message,
+                    "health": event.health,
+                    "rul": event.prediction["rul"],
                     "cycle": event.cycle,
                 }
 
@@ -357,5 +375,3 @@ async def start_replay() -> None:
 
 async def stop_replay() -> None:
     await engine.stop()
-
-

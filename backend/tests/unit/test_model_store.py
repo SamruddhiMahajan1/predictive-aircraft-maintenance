@@ -4,6 +4,7 @@ Each test here pins a bug that was live in this module at least once. All three
 failed *silently* — the app kept answering, just with wrong values — which is the
 failure mode the contract assertion exists to prevent.
 """
+
 from __future__ import annotations
 
 import json
@@ -36,8 +37,14 @@ def _booster(tmp_path: Path, name: str = "xgboost_fd001_full.json") -> xgb.Boost
     x = rng.normal(size=(300, len(FEATURE_ORDER)))
     y = x[:, 0] * 2.0 + rng.normal(scale=0.1, size=300)
     bst = xgb.train(
-        {"objective": "reg:squarederror", "max_depth": 4, "eta": 0.3, "seed": 7,
-         "tree_method": "hist", "verbosity": 0},
+        {
+            "objective": "reg:squarederror",
+            "max_depth": 4,
+            "eta": 0.3,
+            "seed": 7,
+            "tree_method": "hist",
+            "verbosity": 0,
+        },
         xgb.DMatrix(x, label=y),
         num_boost_round=8,
     )
@@ -48,27 +55,41 @@ def _booster(tmp_path: Path, name: str = "xgboost_fd001_full.json") -> xgb.Boost
 
 def _contract(tmp_path: Path, *, requires_scaler: bool) -> Path:
     path = tmp_path / "feature_contract_fd001_full.json"
-    path.write_text(json.dumps({
-        "candidate": "FD001", "subsets": ["FD001"],
-        "model_file": "xgboost_fd001_full.json",
-        "feature_order": list(FEATURE_ORDER), "n_features": len(FEATURE_ORDER),
-        "requires_scaler": requires_scaler, "rul_cap": 125,
-    }))
+    path.write_text(
+        json.dumps(
+            {
+                "candidate": "FD001",
+                "subsets": ["FD001"],
+                "model_file": "xgboost_fd001_full.json",
+                "feature_order": list(FEATURE_ORDER),
+                "n_features": len(FEATURE_ORDER),
+                "requires_scaler": requires_scaler,
+                "rul_cap": 125,
+            }
+        )
+    )
     return path
 
 
 def _baselines(tmp_path: Path, layout: str) -> Path:
-    block = {s: {"median": 100.0, "mad": 10.0}
-             for s in FEATURE_ORDER if "_roll" not in s and s not in ("op1", "op2")}
-    payload = ({"healthy_cycles": 20, "regime_0": block} if layout == "phase1"
-               else {"healthy_cycles": 20, "baselines": {"0": block}})
+    block = {
+        s: {"median": 100.0, "mad": 10.0}
+        for s in FEATURE_ORDER
+        if "_roll" not in s and s not in ("op1", "op2")
+    }
+    payload = (
+        {"healthy_cycles": 20, "regime_0": block}
+        if layout == "phase1"
+        else {"healthy_cycles": 20, "baselines": {"0": block}}
+    )
     path = tmp_path / "regime_baselines_fd001_full.json"
     path.write_text(json.dumps(payload))
     return path
 
 
-def _settings(tmp_path: Path, contract: Path, stats: Path | None,
-              scaler: Path | None = None) -> Settings:
+def _settings(
+    tmp_path: Path, contract: Path, stats: Path | None, scaler: Path | None = None
+) -> Settings:
     return Settings(
         ml_variant="full",
         ml_model_path=str(tmp_path / "xgboost_fd001_full.json"),
@@ -100,7 +121,7 @@ def test_load_is_rejected_when_the_contract_disagrees_with_the_model(tmp_path):
     _booster(tmp_path)
     contract = _contract(tmp_path, requires_scaler=True)
     data = json.loads(contract.read_text())
-    data["n_features"] = 22                      # the old, obsolete contract
+    data["n_features"] = 22  # the old, obsolete contract
     contract.write_text(json.dumps(data))
     h = model_store.load(_settings(tmp_path, contract, None))
     assert h.ready is False
@@ -108,9 +129,13 @@ def test_load_is_rejected_when_the_contract_disagrees_with_the_model(tmp_path):
 
 
 def test_missing_artifact_degrades_to_fallback(tmp_path):
-    h = model_store.load(Settings(ml_model_path=str(tmp_path / "nope.json"),
-                                  ml_contract_path=str(tmp_path / "nope.json"),
-                                  ml_stats_path=""))
+    h = model_store.load(
+        Settings(
+            ml_model_path=str(tmp_path / "nope.json"),
+            ml_contract_path=str(tmp_path / "nope.json"),
+            ml_stats_path="",
+        )
+    )
     assert h.ready is False
     assert h.error
 
@@ -123,10 +148,12 @@ def test_a_staged_artifact_is_picked_up_without_a_restart(tmp_path):
     container was never read and the API went on answering rul = 125 - cycle. `reload`
     is the operation that closes that gap.
     """
-    settings = Settings(ml_model_path=str(tmp_path / "xgboost_fd001_full.json"),
-                        ml_contract_path=str(tmp_path / "feature_contract_fd001_full.json"),
-                        ml_stats_path="")
-    assert model_store.load(settings).ready is False       # booted with nothing staged
+    settings = Settings(
+        ml_model_path=str(tmp_path / "xgboost_fd001_full.json"),
+        ml_contract_path=str(tmp_path / "feature_contract_fd001_full.json"),
+        ml_stats_path="",
+    )
+    assert model_store.load(settings).ready is False  # booted with nothing staged
 
     _booster(tmp_path)
     _contract(tmp_path, requires_scaler=True)
@@ -146,8 +173,8 @@ def test_a_failed_reload_keeps_serving_the_model_already_in_memory(tmp_path):
     (tmp_path / "xgboost_fd001_full.json").unlink()
     h = model_store.reload(settings)
 
-    assert h.ready is True                                   # still answering
-    assert h.error and "No such file" in h.error             # and saying why
+    assert h.ready is True  # still answering
+    assert h.error and "No such file" in h.error  # and saying why
     assert h.describe()["fallback"] is False
 
 
@@ -157,7 +184,7 @@ def test_reload_replaces_a_loaded_handle_rather_than_returning_the_cache(tmp_pat
     settings = _settings(tmp_path, contract, None)
     first = model_store.load(settings)
 
-    _booster(tmp_path)                                        # restage, as retraining would
+    _booster(tmp_path)  # restage, as retraining would
     second = model_store.reload(settings)
 
     assert second is not first
@@ -197,7 +224,7 @@ def test_scaler_variant_applies_the_scaler(tmp_path):
     h = model_store.load(_settings(tmp_path, contract, None, scaler))
     assert h.requires_scaler is True
     assert np.allclose(h.transform([[1.0] * 29]), 42.0)
-    assert h.z_scorer(0) is None          # scaler variant: no in-window z-scoring
+    assert h.z_scorer(0) is None  # scaler variant: no in-window z-scoring
 
 
 def test_zscore_variant_never_applies_a_scaler(tmp_path):
@@ -241,9 +268,11 @@ def test_both_baseline_layouts_produce_a_z_scorer(tmp_path):
 def test_variant_resolves_the_right_filenames(variant, expect_scaler):
     s = Settings(_env_file=None, ml_variant=variant)
     assert s.ml_model_path_resolved.endswith(
-        "xgboost_fd001_full.json" if variant == "full" else "xgboost_fd001_rul.json")
-    assert s.ml_contract_path_resolved.endswith("feature_contract_fd001_full.json"
-                                                if variant == "full" else "feature_contract.json")
+        "xgboost_fd001_full.json" if variant == "full" else "xgboost_fd001_rul.json"
+    )
+    assert s.ml_contract_path_resolved.endswith(
+        "feature_contract_fd001_full.json" if variant == "full" else "feature_contract.json"
+    )
     assert bool(s.ml_scaler_path_resolved) is expect_scaler
 
 
@@ -271,18 +300,30 @@ def test_contract_names_the_stats_file_when_no_override_is_given(tmp_path):
     """Guessing the filename made the real model unloadable; the contract wins."""
     _booster(tmp_path)
     contract = tmp_path / "feature_contract_fd001_full.json"
-    contract.write_text(json.dumps({
-        "candidate": "FD001", "subsets": ["FD001"], "n_features": len(FEATURE_ORDER),
-        "feature_order": list(FEATURE_ORDER), "requires_scaler": False,
-        "regime_baselines_file": "regime_baselines_fd001.json",
-    }))
-    stats = tmp_path / "regime_baselines_fd001.json"      # the name the contract uses
-    block = {c: {"median": 100.0, "mad": 10.0}
-             for c in FEATURE_ORDER if "_roll" not in c and c not in ("op1", "op2")}
+    contract.write_text(
+        json.dumps(
+            {
+                "candidate": "FD001",
+                "subsets": ["FD001"],
+                "n_features": len(FEATURE_ORDER),
+                "feature_order": list(FEATURE_ORDER),
+                "requires_scaler": False,
+                "regime_baselines_file": "regime_baselines_fd001.json",
+            }
+        )
+    )
+    stats = tmp_path / "regime_baselines_fd001.json"  # the name the contract uses
+    block = {
+        c: {"median": 100.0, "mad": 10.0}
+        for c in FEATURE_ORDER
+        if "_roll" not in c and c not in ("op1", "op2")
+    }
     stats.write_text(json.dumps({"healthy_cycles": 20, "baselines": {"FD001": {"0": block}}}))
-    s = Settings(ml_variant="full",
-                 ml_model_path=str(tmp_path / "xgboost_fd001_full.json"),
-                 ml_contract_path=str(contract))
+    s = Settings(
+        ml_variant="full",
+        ml_model_path=str(tmp_path / "xgboost_fd001_full.json"),
+        ml_contract_path=str(contract),
+    )
     assert model_store._resolve_stats_path(s, json.loads(contract.read_text())) == str(stats)
     # and the shipped three-level layout must resolve too
     h = model_store.load(s)
@@ -309,8 +350,7 @@ def test_named_booster_receives_feature_names(tmp_path):
     x = np.random.default_rng(1).normal(size=(200, len(names)))
     y = x[:, 0] * 2 + np.random.default_rng(2).normal(scale=0.1, size=200)
     bst = xgb.train(
-        {"objective": "reg:squarederror", "max_depth": 4, "eta": 0.3, "seed": 7,
-         "verbosity": 0},
+        {"objective": "reg:squarederror", "max_depth": 4, "eta": 0.3, "seed": 7, "verbosity": 0},
         xgb.DMatrix(x, label=y, feature_names=names),
         num_boost_round=5,
     )
@@ -319,4 +359,4 @@ def test_named_booster_receives_feature_names(tmp_path):
     contract = _contract(tmp_path, requires_scaler=True)
     h = model_store.load(_settings(tmp_path, contract, None))
     assert h.ready and bst.feature_names == h.feature_order
-    assert h.predict([[0.5] * len(names)]) is not None   # would raise unnamed
+    assert h.predict([[0.5] * len(names)]) is not None  # would raise unnamed

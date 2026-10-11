@@ -3,6 +3,7 @@
 Native XGBoost via Booster.save_model — no ONNX. The manifest is asserted against the
 booster so a feature-order mismatch fails loudly at load, not silently at predict time.
 """
+
 from __future__ import annotations
 
 import json
@@ -62,11 +63,7 @@ class ModelHandle:
 
     @property
     def version(self) -> str:
-        return str(
-            self.contract.get("version")
-            or self.contract.get("candidate")
-            or "fallback"
-        )
+        return str(self.contract.get("version") or self.contract.get("candidate") or "fallback")
 
     @property
     def dataset(self) -> str | None:
@@ -83,8 +80,11 @@ class ModelHandle:
         cross-validated RMSE stands in for it. Looking only for a "mae" key left this
         None for exactly the model we serve.
         """
-        sources = [self.contract, self.contract.get("metrics") or {},
-                   self.contract.get("holdout") or {}]
+        sources = [
+            self.contract,
+            self.contract.get("metrics") or {},
+            self.contract.get("holdout") or {},
+        ]
         for src in sources:
             value = src.get("mae")
             if value is not None:
@@ -100,8 +100,11 @@ class ModelHandle:
         """True when `mae` is really a cross-validated RMSE, not a holdout MAE."""
         return not any(
             (src.get("mae") is not None)
-            for src in (self.contract, self.contract.get("metrics") or {},
-                        self.contract.get("holdout") or {})
+            for src in (
+                self.contract,
+                self.contract.get("metrics") or {},
+                self.contract.get("holdout") or {},
+            )
         )
 
     def transform(self, matrix: list[list[float]]) -> Any:
@@ -204,12 +207,11 @@ class ModelHandle:
 
         if self.requires_scaler:
             return None
-        return regime_z_scorer(self.stats, regime, subset=subset or self.subset,
-                               sensors=self.base_sensors)
+        return regime_z_scorer(
+            self.stats, regime, subset=subset or self.subset, sensors=self.base_sensors
+        )
 
-    def missing_sensor_defaults(
-        self, subset: str | None = None
-    ) -> dict[str, float]:
+    def missing_sensor_defaults(self, subset: str | None = None) -> dict[str, float]:
         """Healthy median for each contract sensor absent from `subset`'s baseline.
 
         `s10` and `s16` are constant in FD001, so FD001's baseline block omits them —
@@ -303,14 +305,15 @@ def load(settings: Settings | None = None, *, force: bool = False) -> ModelHandl
             declared = int(contract.get("n_features", len(contract.get("feature_order", []))))
             if booster.num_features() != declared:
                 raise ModelUnavailableError(
-                    f"model has {booster.num_features()} features, "
-                    f"contract declares {declared}"
+                    f"model has {booster.num_features()} features, contract declares {declared}"
                 )
 
             scaler = _load_scaler(s)
             if scaler is not None and not contract.get("requires_scaler", True):
-                log.info("contract says requires_scaler=false but a scaler was supplied; "
-                         "ignoring the scaler")
+                log.info(
+                    "contract says requires_scaler=false but a scaler was supplied; "
+                    "ignoring the scaler"
+                )
                 scaler = None
 
             # metrics live beside the model, not inside the contract; fold the headline
@@ -324,12 +327,17 @@ def load(settings: Settings | None = None, *, force: bool = False) -> ModelHandl
                 contract = {**contract, "metrics": _read_json(metrics_path)}
 
             _handle = ModelHandle(
-                booster=booster, contract=contract, stats=stats,
-                scaler=scaler, ready=True,
+                booster=booster,
+                contract=contract,
+                stats=stats,
+                scaler=scaler,
+                ready=True,
             )
             log.info(
                 "ML model loaded: version=%s features=%d requires_scaler=%s",
-                _handle.version, declared, _handle.requires_scaler,
+                _handle.version,
+                declared,
+                _handle.requires_scaler,
             )
         except Exception as exc:  # noqa: BLE001 — degrade, never crash the app
             reason = str(exc).strip().splitlines()[0][:200]
@@ -338,8 +346,9 @@ def load(settings: Settings | None = None, *, force: bool = False) -> ModelHandl
                 # Swapping in the fallback here would turn a bad deploy of a new
                 # artifact into a live outage, so keep the booster and report the
                 # failure through /healthz instead.
-                log.error("ML reload failed (%s); still serving the previously "
-                          "loaded model", reason)
+                log.error(
+                    "ML reload failed (%s); still serving the previously loaded model", reason
+                )
                 _handle = replace(previous, error=reason)
                 return _handle
             log.warning("ML artifact unavailable (%s); running deterministic fallback", reason)
@@ -380,17 +389,24 @@ def warmup(h: ModelHandle | None = None) -> bool:
     if not h.ready:
         return False
     try:
-        result = predict([{"cycle": 1 + i, "settings": {"setting_1": 0.0, "setting_2": 0.0,
-                                                       "setting_3": 100.0},
-                           "sensors": {}} for i in range(30)])
+        result = predict(
+            [
+                {
+                    "cycle": 1 + i,
+                    "settings": {"setting_1": 0.0, "setting_2": 0.0, "setting_3": 100.0},
+                    "sensors": {},
+                }
+                for i in range(30)
+            ]
+        )
     except Exception as exc:  # noqa: BLE001
         log.warning("warmup failed: %s", exc)
         return False
     used_model = not result.get("model", {}).get("fallback", True)
     if not used_model:
         log.warning(
-            "warmup was answered by the fallback (%s), not the booster; reporting "
-            "warm=False", result.get("model", {}).get("reason", "no reason given"),
+            "warmup was answered by the fallback (%s), not the booster; reporting warm=False",
+            result.get("model", {}).get("reason", "no reason given"),
         )
     h.warm = used_model
     return used_model
@@ -416,14 +432,18 @@ def _warn_on_split_artifact_set(settings: Settings) -> None:
             "ML artifact set is split across directories: model=%s contract=%s. "
             "Both are normally derived from FDT_ML_VARIANT=%r; an explicit "
             "FDT_ML_MODEL_PATH overrides only one of them. Unset it.",
-            model, contract, settings.ml_variant,
+            model,
+            contract,
+            settings.ml_variant,
         )
     if not model.exists():
         log.error(
             "ML model artifact missing: %s (variant=%r). Stage it with "
             "`python -m scripts.stage_ml_artifacts --variant %s`, or the API will "
             "answer every request from the deterministic fallback.",
-            model, settings.ml_variant, settings.ml_variant,
+            model,
+            settings.ml_variant,
+            settings.ml_variant,
         )
 
 
@@ -446,7 +466,7 @@ def _load_scaler(settings: Settings) -> Any:
         return None
     with open(path, "rb") as fh:
         blob = pickle.load(fh)
-    if isinstance(blob, dict):          # {"scaler": ..., "features": [...]}
+    if isinstance(blob, dict):  # {"scaler": ..., "features": [...]}
         return blob.get("scaler")
     return blob
 

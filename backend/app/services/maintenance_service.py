@@ -3,6 +3,7 @@
 Every mutation runs inside a UnitOfWork and writes an audit_log row in the same
 transaction (spec 51).
 """
+
 from __future__ import annotations
 
 from datetime import UTC, datetime
@@ -65,8 +66,7 @@ def create_work_order(db: Session, payload: dict) -> dict:
             )
 
         state = next(
-            (r for r in repo.parts_for_aircraft(db, aircraft.id)
-             if r.part.code == part.code),
+            (r for r in repo.parts_for_aircraft(db, aircraft.id) if r.part.code == part.code),
             None,
         )
         # action is derived from live risk — the client cannot set it
@@ -89,8 +89,14 @@ def create_work_order(db: Session, payload: dict) -> dict:
         db.add(work_order)
         uow.flush()
         after = _wo_out(work_order, aircraft.code, part.code)
-        uow.audit(entity="work_order", entity_id=work_order.id, action="create",
-                  actor_id=None, actor_name="system", after=after)
+        uow.audit(
+            entity="work_order",
+            entity_id=work_order.id,
+            action="create",
+            actor_id=None,
+            actor_name="system",
+            after=after,
+        )
 
     bus_payload = dict(after)
     return after | {"_event": work_order_created(bus_payload)}
@@ -101,8 +107,11 @@ def update_work_order(db: Session, work_order_id: int, payload: dict) -> dict:
     if work_order is None:
         raise NotFoundError(f"Work order {work_order_id} not found")
 
-    before = {"status": work_order.status, "priority": work_order.priority,
-              "due_date": str(work_order.due_date)}
+    before = {
+        "status": work_order.status,
+        "priority": work_order.priority,
+        "due_date": str(work_order.due_date),
+    }
 
     if work_order.status == "done":
         raise ConflictError("A completed work order is immutable.")
@@ -132,27 +141,47 @@ def update_work_order(db: Session, work_order_id: int, payload: dict) -> dict:
     after = _wo_out(work_order, aircraft.code, part.code)
 
     with UnitOfWork(db) as uow:
-        uow.audit(entity="work_order", entity_id=work_order.id, action="update",
-                  actor_id=None, actor_name="system",
-                  before=before, after={"status": after["status"],
-                                        "priority": after["priority"]})
+        uow.audit(
+            entity="work_order",
+            entity_id=work_order.id,
+            action="update",
+            actor_id=None,
+            actor_name="system",
+            before=before,
+            after={"status": after["status"], "priority": after["priority"]},
+        )
 
     return after | {"_event": work_order_updated(after)}
 
 
 def _wo_out(wo: WorkOrder, aircraft_code: str, part_code: str) -> dict:
     return {
-        "id": wo.id, "reference": wo.reference, "aircraft": aircraft_code,
-        "part": part_code, "action": wo.action, "due_date": wo.due_date,
-        "due_cycle": wo.due_cycle, "status": wo.status, "priority": wo.priority,
-        "notes": wo.notes, "created_by": None, "created_at": wo.created_at,
-        "updated_at": wo.updated_at, "started_at": wo.started_at,
+        "id": wo.id,
+        "reference": wo.reference,
+        "aircraft": aircraft_code,
+        "part": part_code,
+        "action": wo.action,
+        "due_date": wo.due_date,
+        "due_cycle": wo.due_cycle,
+        "status": wo.status,
+        "priority": wo.priority,
+        "notes": wo.notes,
+        "created_by": None,
+        "created_at": wo.created_at,
+        "updated_at": wo.updated_at,
+        "started_at": wo.started_at,
         "completed_at": wo.completed_at,
     }
 
 
-def list_work_orders(db: Session, status: str | None, aircraft_id: int | None,
-                     part_code: str | None, limit: int, offset: int) -> dict:
+def list_work_orders(
+    db: Session,
+    status: str | None,
+    aircraft_id: int | None,
+    part_code: str | None,
+    limit: int,
+    offset: int,
+) -> dict:
     work_orders = db.query(WorkOrder).offset(offset).limit(limit).all()
     items = []
     for wo in work_orders:
@@ -172,10 +201,7 @@ def list_work_orders(db: Session, status: str | None, aircraft_id: int | None,
 def update_spare(db: Session, part_ref_id: str, payload: dict) -> dict:
     with UnitOfWork(db) as uow:
         spare = (
-            db.query(Spare)
-            .filter(Spare.part_ref_id == part_ref_id)
-            .with_for_update()
-            .one_or_none()
+            db.query(Spare).filter(Spare.part_ref_id == part_ref_id).with_for_update().one_or_none()
         )
         if spare is None:
             raise NotFoundError(f"Spare {part_ref_id} not found")
@@ -184,13 +210,25 @@ def update_spare(db: Session, part_ref_id: str, payload: dict) -> dict:
         delta = new_stock - spare.stock
         if delta:
             spare.stock = new_stock
-            db.add(StockMovement(spare_id=spare.id, delta=delta,
-                                 reason=payload.get("reason", "restock"),
-                                 user_id=None, note=payload.get("note"),
-                                 created_at=uow.as_of()))
-        uow.audit(entity="spare", entity_id=spare.part_ref_id, action=payload.get("reason", "restock"),
-                  actor_id=None, actor_name="system",
-                  before=before, after={"stock": new_stock})
+            db.add(
+                StockMovement(
+                    spare_id=spare.id,
+                    delta=delta,
+                    reason=payload.get("reason", "restock"),
+                    user_id=None,
+                    note=payload.get("note"),
+                    created_at=uow.as_of(),
+                )
+            )
+        uow.audit(
+            entity="spare",
+            entity_id=spare.part_ref_id,
+            action=payload.get("reason", "restock"),
+            actor_id=None,
+            actor_name="system",
+            before=before,
+            after={"stock": new_stock},
+        )
     return _spare_out(spare, None)
 
 
@@ -198,10 +236,7 @@ def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> d
     """SELECT ... FOR UPDATE — prevents oversell under concurrent reservations."""
     with UnitOfWork(db) as uow:
         spare = (
-            db.query(Spare)
-            .filter(Spare.part_ref_id == part_ref_id)
-            .with_for_update()
-            .one_or_none()
+            db.query(Spare).filter(Spare.part_ref_id == part_ref_id).with_for_update().one_or_none()
         )
         if spare is None:
             raise NotFoundError(f"Spare {part_ref_id} not found")
@@ -213,9 +248,16 @@ def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> d
 
         before = spare.stock
         spare.stock -= 1
-        db.add(StockMovement(spare_id=spare.id, delta=-1, reason="reserve",
-                             work_order_id=work_order_id, user_id=None,
-                             created_at=uow.as_of()))
+        db.add(
+            StockMovement(
+                spare_id=spare.id,
+                delta=-1,
+                reason="reserve",
+                work_order_id=work_order_id,
+                user_id=None,
+                created_at=uow.as_of(),
+            )
+        )
 
         wo_status = None
         if work_order_id:
@@ -226,40 +268,60 @@ def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> d
                 work_order.updated_at = uow.as_of()
                 wo_status = work_order.status
 
-        uow.audit(entity="spare", entity_id=spare.part_ref_id, action="reserve",
-                  actor_id=None, actor_name="system",
-                  before={"stock": before}, after={"stock": spare.stock})
+        uow.audit(
+            entity="spare",
+            entity_id=spare.part_ref_id,
+            action="reserve",
+            actor_id=None,
+            actor_name="system",
+            before={"stock": before},
+            after={"stock": spare.stock},
+        )
 
     result = {
-        "part_ref_id": spare.part_ref_id, "stock_before": before,
-        "stock_remaining": spare.stock, "reserved_at": datetime.now(UTC),
-        "work_order_id": work_order_id, "work_order_status": wo_status,
+        "part_ref_id": spare.part_ref_id,
+        "stock_before": before,
+        "stock_remaining": spare.stock,
+        "reserved_at": datetime.now(UTC),
+        "work_order_id": work_order_id,
+        "work_order_status": wo_status,
     }
-    return result | {"_event": spare_reserved({"part_ref_id": spare.part_ref_id,
-                                               "stock_remaining": spare.stock})}
+    return result | {
+        "_event": spare_reserved({"part_ref_id": spare.part_ref_id, "stock_remaining": spare.stock})
+    }
 
 
 def _spare_out(spare: Spare, last_movement) -> dict:
     return {
-        "part_ref_id": spare.part_ref_id, "item_name": spare.item_name,
-        "component_name": spare.component_name, "aircraft_model": spare.aircraft_model,
-        "stock": spare.stock, "minimum_stock": spare.minimum_stock,
-        "reorder_quantity": spare.reorder_quantity, "supplier": spare.supplier,
-        "lead_time_days": spare.lead_time_days, "unit_cost_inr": spare.unit_cost_inr,
-        "storage_location": spare.storage_location, "criticality": spare.criticality,
-        "in_stock": spare.stock > 0, "low_stock": spare.stock <= spare.minimum_stock,
+        "part_ref_id": spare.part_ref_id,
+        "item_name": spare.item_name,
+        "component_name": spare.component_name,
+        "aircraft_model": spare.aircraft_model,
+        "stock": spare.stock,
+        "minimum_stock": spare.minimum_stock,
+        "reorder_quantity": spare.reorder_quantity,
+        "supplier": spare.supplier,
+        "lead_time_days": spare.lead_time_days,
+        "unit_cost_inr": spare.unit_cost_inr,
+        "storage_location": spare.storage_location,
+        "criticality": spare.criticality,
+        "in_stock": spare.stock > 0,
+        "low_stock": spare.stock <= spare.minimum_stock,
         "last_movement": (
-            {"delta": last_movement.delta, "reason": last_movement.reason,
-             "at": last_movement.created_at}
-            if last_movement else None
+            {
+                "delta": last_movement.delta,
+                "reason": last_movement.reason,
+                "at": last_movement.created_at,
+            }
+            if last_movement
+            else None
         ),
     }
 
 
 def list_spares(db: Session) -> dict:
-    movements = repo.last_stock_movements(db)      # one query, not forty
-    items = [_spare_out(spare, movements.get(spare.id))
-             for spare in repo.list_spares(db)]
+    movements = repo.last_stock_movements(db)  # one query, not forty
+    items = [_spare_out(spare, movements.get(spare.id)) for spare in repo.list_spares(db)]
     return {"items": items, "total": len(items)}
 
 
@@ -269,17 +331,22 @@ def list_agencies(db: Session) -> dict:
     items = []
     for agency in repo.list_agencies(db):
         bookings = repo.open_bookings(db, agency.id)
-        items.append({
-            "id": agency.id, "agency_ref_id": agency.agency_ref_id, "name": agency.name,
-            "type": agency.type, "location": agency.location,
-            "specialisation": agency.specialisation,
-            "turnaround_days": agency.turnaround_days,
-            "monthly_capacity_slots": agency.monthly_capacity_slots,
-            "cost_multiplier": float(agency.cost_multiplier),
-            "free_slot_days": agency.free_slot_days,
-            "open_bookings": len(bookings),
-            "handles_parts": [p.code for p in parts if p.agency_id == agency.id],
-        })
+        items.append(
+            {
+                "id": agency.id,
+                "agency_ref_id": agency.agency_ref_id,
+                "name": agency.name,
+                "type": agency.type,
+                "location": agency.location,
+                "specialisation": agency.specialisation,
+                "turnaround_days": agency.turnaround_days,
+                "monthly_capacity_slots": agency.monthly_capacity_slots,
+                "cost_multiplier": float(agency.cost_multiplier),
+                "free_slot_days": agency.free_slot_days,
+                "open_bookings": len(bookings),
+                "handles_parts": [p.code for p in parts if p.agency_id == agency.id],
+            }
+        )
     return {"items": items}
 
 
@@ -292,9 +359,7 @@ def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
         raise BusinessRuleError(f"Unknown part {payload['part']!r}")
 
     with UnitOfWork(db) as uow:
-        agency = (
-            db.query(Agency).filter(Agency.id == agency_id).with_for_update().one_or_none()
-        )
+        agency = db.query(Agency).filter(Agency.id == agency_id).with_for_update().one_or_none()
         if agency is None:
             raise NotFoundError(f"Agency {agency_id} not found")
 
@@ -302,9 +367,7 @@ def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
         booked_days = sum(b.turnaround_days for b in bookings)
         from ..domain.scheduling import agency_free_slot_days
 
-        free_slot = agency_free_slot_days(
-            agency.monthly_capacity_slots, booked_days, len(bookings)
-        )
+        free_slot = agency_free_slot_days(agency.monthly_capacity_slots, booked_days, len(bookings))
         if free_slot <= 0:
             raise NoSlotAvailableError(
                 f"{agency.name} has no free slot this month.",
@@ -313,50 +376,66 @@ def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
         agency.free_slot_days = free_slot
 
         state = next(
-            (r for r in repo.parts_for_aircraft(db, aircraft.id)
-             if r.part.code == part.code), None
+            (r for r in repo.parts_for_aircraft(db, aircraft.id) if r.part.code == part.code), None
         )
         spare = state.spare if state else None
         stock = spare.stock if spare else 0
         lead = spare.lead_time_days if spare else 0
 
-        breakdown = back_in_service_breakdown(
-            free_slot, agency.turnaround_days, lead, stock
-        )
+        breakdown = back_in_service_breakdown(free_slot, agency.turnaround_days, lead, stock)
         booking = AgencyBooking(
-            agency_id=agency.id, aircraft_id=aircraft.id, part_id=part.id,
+            agency_id=agency.id,
+            aircraft_id=aircraft.id,
+            part_id=part.id,
             work_order_id=payload.get("work_order_id"),
             booked_on=uow.as_of().date(),
             slot_days=breakdown["slot_days"],
             turnaround_days=breakdown["turnaround_days"],
             lead_time_days=breakdown["lead_time_days"],
-            eta_date=eta_date(breakdown["slot_days"], breakdown["turnaround_days"],
-                              breakdown["lead_time_days"], stock),
-            created_by=None, created_at=uow.as_of(),
+            eta_date=eta_date(
+                breakdown["slot_days"],
+                breakdown["turnaround_days"],
+                breakdown["lead_time_days"],
+                stock,
+            ),
+            created_by=None,
+            created_at=uow.as_of(),
         )
         db.add(booking)
         uow.flush()
-        uow.audit(entity="agency", entity_id=agency.agency_ref_id, action="book",
-                  actor_id=None, actor_name="system",
-                  after={"eta_date": str(booking.eta_date),
-                         "back_in_service_days": breakdown["total"]})
+        uow.audit(
+            entity="agency",
+            entity_id=agency.agency_ref_id,
+            action="book",
+            actor_id=None,
+            actor_name="system",
+            after={"eta_date": str(booking.eta_date), "back_in_service_days": breakdown["total"]},
+        )
 
     result = {
-        "id": booking.id, "agency": agency.name, "aircraft": aircraft.code,
-        "part": part.code, "booked_on": booking.booked_on,
-        "slot_days": booking.slot_days, "turnaround_days": booking.turnaround_days,
-        "lead_time_days": booking.lead_time_days, "eta_date": booking.eta_date,
+        "id": booking.id,
+        "agency": agency.name,
+        "aircraft": aircraft.code,
+        "part": part.code,
+        "booked_on": booking.booked_on,
+        "slot_days": booking.slot_days,
+        "turnaround_days": booking.turnaround_days,
+        "lead_time_days": booking.lead_time_days,
+        "eta_date": booking.eta_date,
         "back_in_service_days": breakdown["total"],
-        "breakdown": {"slot": breakdown["slot_days"],
-                      "turnaround": breakdown["turnaround_days"],
-                      "lead_time": breakdown["lead_time_days"]},
+        "breakdown": {
+            "slot": breakdown["slot_days"],
+            "turnaround": breakdown["turnaround_days"],
+            "lead_time": breakdown["lead_time_days"],
+        },
     }
     return result | {"_event": booking_created(result)}
 
 
 # ── 39 ─────────────────────────────────────────────────────────────────────────
-def list_alerts(db: Session, acknowledged: bool | None, level: str | None,
-                aircraft_code: str | None, limit: int) -> dict:
+def list_alerts(
+    db: Session, acknowledged: bool | None, level: str | None, aircraft_code: str | None, limit: int
+) -> dict:
     rows = repo.list_alerts(db, acknowledged, limit * 2)
     items = []
     for alert in rows:
@@ -366,14 +445,22 @@ def list_alerts(db: Session, acknowledged: bool | None, level: str | None,
             continue
         if aircraft_code and aircraft.code != aircraft_code:
             continue
-        items.append({
-            "id": alert.id, "aircraft": aircraft.code, "aircraft_id": aircraft.id,
-            "part": part.code, "level": alert.level, "message": alert.message,
-            "health": float(alert.health) if alert.health is not None else None,
-            "cycle": alert.cycle, "acknowledged": alert.acknowledged,
-            "acknowledged_by": None, "acknowledged_at": alert.acked_at,
-            "created_at": alert.created_at,
-        })
+        items.append(
+            {
+                "id": alert.id,
+                "aircraft": aircraft.code,
+                "aircraft_id": aircraft.id,
+                "part": part.code,
+                "level": alert.level,
+                "message": alert.message,
+                "health": float(alert.health) if alert.health is not None else None,
+                "cycle": alert.cycle,
+                "acknowledged": alert.acknowledged,
+                "acknowledged_by": None,
+                "acknowledged_at": alert.acked_at,
+                "created_at": alert.created_at,
+            }
+        )
         if len(items) >= limit:
             break
     return {"items": items, "unacknowledged_count": repo.unacked_count(db)}
@@ -389,16 +476,25 @@ def ack_alert(db: Session, alert_id: int, note: str | None) -> dict:
         alert.acknowledged = True
         alert.acked_by = None
         alert.acked_at = now
-        uow.audit(entity="alert", entity_id=alert.id, action="ack",
-                  actor_id=None, actor_name="system",
-                  before=before, after={"acknowledged": True, "note": note})
+        uow.audit(
+            entity="alert",
+            entity_id=alert.id,
+            action="ack",
+            actor_id=None,
+            actor_name="system",
+            before=before,
+            after={"acknowledged": True, "note": note},
+        )
 
     return {
-        "id": alert.id, "acknowledged": True,
+        "id": alert.id,
+        "acknowledged": True,
         "acknowledged_by": None,
-        "acknowledged_at": alert.acked_at, "note": note,
-        "_event": alert_acked({"id": alert.id, "acknowledged_by": "system",
-                               "acknowledged_at": str(alert.acked_at)}),
+        "acknowledged_at": alert.acked_at,
+        "note": note,
+        "_event": alert_acked(
+            {"id": alert.id, "acknowledged_by": "system", "acknowledged_at": str(alert.acked_at)}
+        ),
     }
 
 

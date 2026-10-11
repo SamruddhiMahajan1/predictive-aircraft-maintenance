@@ -1,4 +1,5 @@
 """FastAPI dependencies — db session and settings."""
+
 from __future__ import annotations
 
 from typing import Annotated

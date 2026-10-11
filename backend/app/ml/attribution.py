@@ -1,4 +1,5 @@
 """Per-sensor deviation and top-sensor attribution (docs/08 §6.3, §6.6)."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -11,15 +12,17 @@ GAIN_WEIGHT = 0.6
 Z_WEIGHT = 0.4
 
 SENSOR_COMPONENT = {
-    sensor: component
-    for component, sensors in COMPONENT_SENSOR_MAP.items()
-    for sensor in sensors
+    sensor: component for component, sensors in COMPONENT_SENSOR_MAP.items() for sensor in sensors
 }
 
 
 def z_scores(
-    window: list[dict[str, Any]], stats: dict[str, Any], regime: int = 0,
-    subset: str | None = None, *, s6_median: float | None = None,
+    window: list[dict[str, Any]],
+    stats: dict[str, Any],
+    regime: int = 0,
+    subset: str | None = None,
+    *,
+    s6_median: float | None = None,
 ) -> dict[str, float]:
     """Robust z against the healthy baseline (median/MAD over the first 20 cycles).
 
@@ -48,13 +51,13 @@ def z_scores(
     latest = window[-1]
     sensors = dict(latest.get("sensors") or {})
     if sensors.get("s6") is None and s6_median is not None:
-        sensors["s6"] = s6_median      # same imputation build_matrix applies
+        sensors["s6"] = s6_median  # same imputation build_matrix applies
     out: dict[str, float] = {}
     for sensor in SENSORS:
         stat = baseline.get(sensor)
         value = sensors.get(sensor)
         if not stat or value is None:
-            continue          # a missing sensor is skipped, not a KeyError
+            continue  # a missing sensor is skipped, not a KeyError
         out[sensor] = robust_z(value, float(stat["median"]), float(stat.get("mad", 0.0)))
     return out
 

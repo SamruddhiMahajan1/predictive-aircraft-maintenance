@@ -1,4 +1,5 @@
 """Work orders — spec 35. Action is derived from risk, never from the client."""
+
 from __future__ import annotations
 
 import pytest
@@ -12,8 +13,10 @@ PARTS = ["engine", "radar", "gear", "hyd", "fuel"]
 
 def _free_pair(client, db):
     """An (aircraft, part) combination with no open work order."""
-    open_pairs = {(w.aircraft_id, w.part_id) for w in db.scalars(
-        select(WorkOrder).where(WorkOrder.status != "done"))}
+    open_pairs = {
+        (w.aircraft_id, w.part_id)
+        for w in db.scalars(select(WorkOrder).where(WorkOrder.status != "done"))
+    }
     for code in [f"Fighter-0{i}" for i in range(1, 9)]:
         detail = client.get(f"/api/v1/aircraft/{code}").json()
         for part in detail["parts"]:
@@ -30,9 +33,10 @@ def _part_id(db, code: str) -> int:
 
 def test_create_returns_201_and_the_body(client, db):
     code, part, _ = _free_pair(client, db)
-    response = client.post("/api/v1/work-orders",
-                           json={"aircraft": code, "part": part,
-                                 "due_date": "2026-12-01", "priority": "high"})
+    response = client.post(
+        "/api/v1/work-orders",
+        json={"aircraft": code, "part": part, "due_date": "2026-12-01", "priority": "high"},
+    )
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["reference"].startswith("WO-")
@@ -44,71 +48,86 @@ def test_create_returns_201_and_the_body(client, db):
 def test_action_is_derived_from_risk_not_the_client(client, db):
     code, part, _ = _free_pair(client, db)
     detail = client.get(f"/api/v1/aircraft/{code}/parts/{part}").json()
-    body = client.post("/api/v1/work-orders",
-                       json={"aircraft": code, "part": part, "due_date": "2026-12-01"}).json()
+    body = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    ).json()
     assert body["action"] == recommended_action(detail["risk"])
 
 
 def test_client_cannot_inject_an_action(client, db):
     code, part, _ = _free_pair(client, db)
-    body = client.post("/api/v1/work-orders",
-                       json={"aircraft": code, "part": part, "due_date": "2026-12-01",
-                             "action": "Ignore everything"}).json()
+    body = client.post(
+        "/api/v1/work-orders",
+        json={
+            "aircraft": code,
+            "part": part,
+            "due_date": "2026-12-01",
+            "action": "Ignore everything",
+        },
+    ).json()
     assert body["action"] != "Ignore everything"
 
 
 def test_duplicate_open_work_order_is_409(client, db):
     code, part, _ = _free_pair(client, db)
     payload = {"aircraft": code, "part": part, "due_date": "2026-12-01"}
-    assert client.post("/api/v1/work-orders",
-                       json=payload).status_code == 201
+    assert client.post("/api/v1/work-orders", json=payload).status_code == 201
     second = client.post("/api/v1/work-orders", json=payload)
     assert second.status_code == 409
     assert second.json()["error"]["code"] == "DUPLICATE_WORK_ORDER"
 
 
 def test_unknown_aircraft_is_404(client):
-    response = client.post("/api/v1/work-orders",
-                           json={"aircraft": "Fighter-99", "part": "engine",
-                                 "due_date": "2026-12-01"})
+    response = client.post(
+        "/api/v1/work-orders",
+        json={"aircraft": "Fighter-99", "part": "engine", "due_date": "2026-12-01"},
+    )
     assert response.status_code == 404
 
 
 def test_unknown_part_is_422(client):
-    response = client.post("/api/v1/work-orders",
-                           json={"aircraft": "Fighter-01", "part": "warp-core",
-                                 "due_date": "2026-12-01"})
+    response = client.post(
+        "/api/v1/work-orders",
+        json={"aircraft": "Fighter-01", "part": "warp-core", "due_date": "2026-12-01"},
+    )
     assert response.status_code == 422
 
 
 def test_missing_due_date_is_422(client):
-    response = client.post("/api/v1/work-orders",
-                           json={"aircraft": "Fighter-01", "part": "engine"})
+    response = client.post("/api/v1/work-orders", json={"aircraft": "Fighter-01", "part": "engine"})
     assert response.status_code == 422
 
 
 def test_invalid_priority_is_422(client):
-    response = client.post("/api/v1/work-orders",
-                           json={"aircraft": "Fighter-01", "part": "engine",
-                                 "due_date": "2026-12-01", "priority": "urgent"})
+    response = client.post(
+        "/api/v1/work-orders",
+        json={
+            "aircraft": "Fighter-01",
+            "part": "engine",
+            "due_date": "2026-12-01",
+            "priority": "urgent",
+        },
+    )
     assert response.status_code == 422
 
 
 def test_open_to_in_progress_sets_started_at(client, db):
     code, part, _ = _free_pair(client, db)
-    created = client.post("/api/v1/work-orders",
-                          json={"aircraft": code, "part": part,
-                                "due_date": "2026-12-01"}).json()
-    body = client.patch(f"/api/v1/work-orders/{created['id']}", json={"status": "in_progress"}).json()
+    created = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    ).json()
+    body = client.patch(
+        f"/api/v1/work-orders/{created['id']}", json={"status": "in_progress"}
+    ).json()
     assert body["status"] == "in_progress"
     assert body["started_at"] is not None
 
 
 def test_completion_sets_completed_at(client, db):
     code, part, _ = _free_pair(client, db)
-    created = client.post("/api/v1/work-orders",
-                          json={"aircraft": code, "part": part,
-                                "due_date": "2026-12-01"}).json()
+    created = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    ).json()
     body = client.patch(f"/api/v1/work-orders/{created['id']}", json={"status": "done"}).json()
     assert body["status"] == "done"
     assert body["completed_at"] is not None
@@ -116,36 +135,31 @@ def test_completion_sets_completed_at(client, db):
 
 def test_in_progress_to_open_is_rejected(client, db):
     code, part, _ = _free_pair(client, db)
-    created = client.post("/api/v1/work-orders",
-                          json={"aircraft": code, "part": part,
-                                "due_date": "2026-12-01"}).json()
-    client.patch(f"/api/v1/work-orders/{created['id']}",
-                 json={"status": "in_progress"})
-    back = client.patch(f"/api/v1/work-orders/{created['id']}",
-                        json={"status": "open"})
+    created = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    ).json()
+    client.patch(f"/api/v1/work-orders/{created['id']}", json={"status": "in_progress"})
+    back = client.patch(f"/api/v1/work-orders/{created['id']}", json={"status": "open"})
     assert back.status_code == 422
     assert back.json()["error"]["code"] == "BUSINESS_RULE_VIOLATION"
 
 
 def test_completed_work_order_is_immutable(client, db):
     code, part, _ = _free_pair(client, db)
-    created = client.post("/api/v1/work-orders",
-                          json={"aircraft": code, "part": part,
-                                "due_date": "2026-12-01"}).json()
-    client.patch(f"/api/v1/work-orders/{created['id']}",
-                 json={"status": "done"})
-    again = client.patch(f"/api/v1/work-orders/{created['id']}",
-                         json={"status": "in_progress"})
+    created = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    ).json()
+    client.patch(f"/api/v1/work-orders/{created['id']}", json={"status": "done"})
+    again = client.patch(f"/api/v1/work-orders/{created['id']}", json={"status": "in_progress"})
     assert again.status_code == 409
 
 
 def test_priority_can_be_raised_without_changing_status(client, db):
     code, part, _ = _free_pair(client, db)
-    created = client.post("/api/v1/work-orders",
-                          json={"aircraft": code, "part": part,
-                                "due_date": "2026-12-01"}).json()
-    body = client.patch(f"/api/v1/work-orders/{created['id']}",
-                        json={"priority": "high"}).json()
+    created = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    ).json()
+    body = client.patch(f"/api/v1/work-orders/{created['id']}", json={"priority": "high"}).json()
     assert body["priority"] == "high"
     assert body["status"] == "open"
 
@@ -153,12 +167,9 @@ def test_priority_can_be_raised_without_changing_status(client, db):
 def test_completing_a_work_order_frees_the_pair_for_a_new_one(client, db):
     code, part, _ = _free_pair(client, db)
     payload = {"aircraft": code, "part": part, "due_date": "2026-12-01"}
-    first = client.post("/api/v1/work-orders",
-                        json=payload).json()
-    client.patch(f"/api/v1/work-orders/{first['id']}",
-                 json={"status": "done"})
-    assert client.post("/api/v1/work-orders",
-                       json=payload).status_code == 201
+    first = client.post("/api/v1/work-orders", json=payload).json()
+    client.patch(f"/api/v1/work-orders/{first['id']}", json={"status": "done"})
+    assert client.post("/api/v1/work-orders", json=payload).status_code == 201
 
 
 def test_list_work_orders(client):
@@ -173,22 +184,22 @@ def test_list_work_orders_filtered_by_status(client):
 
 
 def test_unknown_work_order_is_404(client):
-    assert client.patch("/api/v1/work-orders/999999",
-                        json={"status": "done"}).status_code == 404
+    assert client.patch("/api/v1/work-orders/999999", json={"status": "done"}).status_code == 404
 
 
 def test_open_create_without_login(client, db):
     code, part, _ = _free_pair(client, db)
-    response = client.post("/api/v1/work-orders",
-                           json={"aircraft": code, "part": part, "due_date": "2026-12-01"})
+    response = client.post(
+        "/api/v1/work-orders", json={"aircraft": code, "part": part, "due_date": "2026-12-01"}
+    )
     assert response.status_code == 201
 
 
 def test_every_created_work_order_is_audited(client, db):
     code, part, _ = _free_pair(client, db)
-    client.post("/api/v1/work-orders",
-                json={"aircraft": code, "part": part, "due_date": "2026-12-01",
-                      "notes": "audit probe"})
+    client.post(
+        "/api/v1/work-orders",
+        json={"aircraft": code, "part": part, "due_date": "2026-12-01", "notes": "audit probe"},
+    )
     trail = client.get("/api/v1/audit?entity=work_order&limit=5").json()["items"]
-    assert any(row["after"] and row["after"].get("notes") == "audit probe"
-               for row in trail)
+    assert any(row["after"] and row["after"].get("notes") == "audit probe" for row in trail)

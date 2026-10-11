@@ -1,4 +1,5 @@
 """Event-bus fan-out policy: a slow consumer must be told, not silently abandoned."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,10 +30,11 @@ def test_an_overflowed_consumer_receives_the_overflow_sentinel():
     never trips the false→true transition that triggers a REST resync. The sentinel is
     what lets `ws.drain()` wake up and close.
     """
+
     async def run():
         bus = EventBus(maxsize=2)
         q = bus.subscribe()
-        for i in range(6):                     # 2 fit, the rest overflow
+        for i in range(6):  # 2 fit, the rest overflow
             await bus.publish(cycle_tick(i))
         return bus, q
 
@@ -46,16 +48,19 @@ def test_an_overflowed_consumer_receives_the_overflow_sentinel():
     while not q.empty():
         items.append(q.get_nowait())
     assert items, "overflowed consumer must still be woken"
-    assert items[-1] is OVERFLOW, "sentinel must be last, so a partial frame is not mistaken for data"
+    assert items[-1] is OVERFLOW, (
+        "sentinel must be last, so a partial frame is not mistaken for data"
+    )
 
 
 def test_overflow_wakes_a_consumer_that_has_not_drained_at_all():
     """A queue nobody reads still ends up holding the sentinel, not just the earlier events."""
+
     async def run():
         bus = EventBus(maxsize=1)
         q = bus.subscribe()
-        await bus.publish(cycle_tick(1))       # fills it
-        await bus.publish(cycle_tick(2))       # overflows, evicts, queues OVERFLOW
+        await bus.publish(cycle_tick(1))  # fills it
+        await bus.publish(cycle_tick(2))  # overflows, evicts, queues OVERFLOW
         return q
 
     q = asyncio.run(run())
@@ -65,13 +70,14 @@ def test_overflow_wakes_a_consumer_that_has_not_drained_at_all():
 
 def test_slow_consumer_does_not_starve_the_others():
     """One bad socket must not stop delivery to everyone else."""
+
     async def run():
         bus = EventBus(maxsize=2)
-        slow = bus.subscribe()                # nobody ever reads this one
+        slow = bus.subscribe()  # nobody ever reads this one
         healthy = bus.subscribe()
         for i in range(4):
             await bus.publish(cycle_tick(i))
-            healthy.get_nowait()              # the fast consumer keeps up
+            healthy.get_nowait()  # the fast consumer keeps up
         return slow, healthy, bus
 
     slow, healthy, bus = asyncio.run(run())

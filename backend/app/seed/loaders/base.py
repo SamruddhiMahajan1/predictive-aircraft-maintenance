@@ -1,4 +1,5 @@
 """CSV loading helpers — generic, idempotent upsert on a natural key."""
+
 from __future__ import annotations
 
 import csv
@@ -115,7 +116,7 @@ def upsert_all(
         values = {col: _apply(row.get(col), fn) for col, fn in mapper.items()}
         obj = existing.get(identity)
         if obj is None:
-            obj = model(**values)      # mapper includes the key columns
+            obj = model(**values)  # mapper includes the key columns
             db.add(obj)
             existing[identity] = obj
         else:
@@ -135,5 +136,13 @@ def _apply(raw: Any, fn: Callable[[Any], Any]) -> Any:
 
 
 __all__ = [
-    "read_csv", "rename", "upsert_all", "_int", "_float", "_decimal", "_date", "_text", "_identity",
+    "read_csv",
+    "rename",
+    "upsert_all",
+    "_int",
+    "_float",
+    "_decimal",
+    "_date",
+    "_text",
+    "_identity",
 ]

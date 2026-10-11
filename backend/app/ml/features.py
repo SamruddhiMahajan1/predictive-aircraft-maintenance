@@ -24,6 +24,7 @@ The contract is whatever the trained model declares -- 29 columns for the FD001 
 test set is truncated early, so feeding it produces a model that scores well and fails on
 real data. It is still tracked per aircraft, for the fallback and for provenance.
 """
+
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence

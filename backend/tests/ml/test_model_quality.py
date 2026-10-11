@@ -3,6 +3,7 @@
 Quality assertions that need the trained artifact are skipped until Phase 0
 produces it; everything else runs unconditionally.
 """
+
 from __future__ import annotations
 
 import json
@@ -24,24 +25,34 @@ from app.models.reference import AircraftRef, ComponentRef, FlightOpsMonthly
 # therefore failed with FileNotFoundError — not a skip — whenever a different variant
 # was the one actually staged, and silently skipped when `full` happened to be absent.
 _STAGED = next(
-    (v for v in sorted(Settings(_env_file=None)._ML_FILES)
-     if pathlib.Path(Settings(_env_file=None, ml_variant=v).ml_model_path_resolved).exists()),
-    None)
-_SETTINGS = Settings(_env_file=None, ml_variant=_STAGED) if _STAGED else Settings(
-    _env_file=None
+    (
+        v
+        for v in sorted(Settings(_env_file=None)._ML_FILES)
+        if pathlib.Path(Settings(_env_file=None, ml_variant=v).ml_model_path_resolved).exists()
+    ),
+    None,
 )
+_SETTINGS = Settings(_env_file=None, ml_variant=_STAGED) if _STAGED else Settings(_env_file=None)
 ARTIFACT = pathlib.Path(_SETTINGS.ml_model_path_resolved)
 CONTRACT = pathlib.Path(_SETTINGS.ml_contract_path_resolved)
 # the baselines file: the contract names it when it has one
-STATS = pathlib.Path(
-    _SETTINGS.ml_dir
-    / (json.loads(CONTRACT.read_text()).get("regime_baselines_file", "")
-       if CONTRACT.exists() else "")
-) if CONTRACT.exists() else pathlib.Path(str(_SETTINGS.ml_dir / "none"))
+STATS = (
+    pathlib.Path(
+        _SETTINGS.ml_dir
+        / (
+            json.loads(CONTRACT.read_text()).get("regime_baselines_file", "")
+            if CONTRACT.exists()
+            else ""
+        )
+    )
+    if CONTRACT.exists()
+    else pathlib.Path(str(_SETTINGS.ml_dir / "none"))
+)
 has_artifact = pytest.mark.skipif(
     not ARTIFACT.exists(),
     reason="no ML variant staged: copy models/multi/*_full.json from Drive "
-           "(see docs/08 §4 and docs/12 §8)")
+    "(see docs/08 §4 and docs/12 §8)",
+)
 # derived the same way model_store derives it: xgboost_X.json -> metrics_X.json
 METRICS = pathlib.Path(
     ARTIFACT.name.replace("xgboost_", "metrics_") if ARTIFACT.exists() else "metrics_missing"
@@ -65,14 +76,13 @@ def test_contract_declares_the_trained_feature_vector():
     assert len(order) == len(set(order)), "duplicate column name"
     # the contract's own width must be what the builder can actually produce
     implied = (
-        len(contract_sensors(order))                     # raw sensor columns
-        + sum(1 for c in order if c in ("op1", "op2"))   # settings
+        len(contract_sensors(order))  # raw sensor columns
+        + sum(1 for c in order if c in ("op1", "op2"))  # settings
         + sum(1 for c in order if c == contract.get("regime_column", "regime_global"))
-        + sum(1 for c in order if "_roll" in c)          # derived
+        + sum(1 for c in order if "_roll" in c)  # derived
     )
     assert implied == contract["n_features"], (
-        f"feature_order implies {implied} columns, contract declares "
-        f"{contract['n_features']}"
+        f"feature_order implies {implied} columns, contract declares {contract['n_features']}"
     )
     if contract.get("subsets") == ["FD001"]:
         assert order == list(FEATURE_ORDER)
@@ -97,7 +107,7 @@ def test_artifact_metadata_is_sane():
     metrics = json.loads((STATS.parent / METRICS.name).read_text())
     assert metrics["rows_trained"] > 0 and metrics["engines_trained"] > 0
     assert metrics["selection"]["official_test_used_for_selection"] is False
-    assert 0 < metrics["cv_rmse"]["mean"] <= 21.0          # CV RMSE, 5-fold grouped
+    assert 0 < metrics["cv_rmse"]["mean"] <= 21.0  # CV RMSE, 5-fold grouped
 
 
 @has_artifact
@@ -184,7 +194,7 @@ def _golden_predictions(subset: str = "FD001") -> tuple[list[float], list[float]
             # minus nothing -- training rows carry no RUL column, so the true value is
             # derived from position in the engine's own history.
             last_cycle = max(cycles)
-            remaining = 0            # the final cycle of a training run IS failure
+            remaining = 0  # the final cycle of a training run IS failure
             result = predict(window, subset=subset, current_cycle=last_cycle)
             if result["model"]["fallback"]:
                 continue
@@ -262,8 +272,7 @@ def test_golden_accuracy_meets_the_documented_gate():
                 window = [cycles[c] for c in order[max(0, index - 29) : index + 1]]
                 if len(window) < 5:
                     continue
-                result = predict(window, subset=subset,
-                                 current_cycle=order[index])
+                result = predict(window, subset=subset, current_cycle=order[index])
                 if result["model"]["fallback"]:
                     continue
                 # Ground truth: cycles remaining until this engine's final cycle.
@@ -440,8 +449,9 @@ def test_baseline_stats_cover_every_sensor():
 def test_deviation_scores_are_produced_for_every_sensor(client):
     from tests.integration.test_telemetry_ml import _predict_window
 
-    body = client.post("/api/v1/internal/ml/predict",
-                       json={"window": _predict_window(), "persist": False}).json()
+    body = client.post(
+        "/api/v1/internal/ml/predict", json={"window": _predict_window(), "persist": False}
+    ).json()
     assert set(body["deviation"]) == set(SENSORS)
     assert body["model"]["fallback"] is False
 
@@ -454,8 +464,9 @@ def test_rul_never_leaves_the_cap(client):
         window = _predict_window()
         for row in window:
             row["cycle"] += start
-        body = client.post("/api/v1/internal/ml/predict",
-                           json={"window": window, "persist": False}).json()
+        body = client.post(
+            "/api/v1/internal/ml/predict", json={"window": window, "persist": False}
+        ).json()
         assert 0 <= body["rul"] <= 125
 
 
@@ -464,8 +475,9 @@ def test_predictions_are_deterministic(client):
     from tests.integration.test_telemetry_ml import _predict_window
 
     results = [
-        client.post("/api/v1/internal/ml/predict",
-                    json={"window": _predict_window(), "persist": False}).json()
+        client.post(
+            "/api/v1/internal/ml/predict", json={"window": _predict_window(), "persist": False}
+        ).json()
         for _ in range(10)
     ]
     for result in results:
@@ -479,11 +491,14 @@ def test_reference_data_row_counts_match_the_csvs(db):
     assert db.scalar(select(func.count()).select_from(ComponentRef)) == 600
     assert db.scalar(select(func.count()).select_from(FlightOpsMonthly)) == 3300
     # count only the seeded agencies, so a test that provisions its own cannot break this
-    assert db.scalar(
-        select(func.count()).select_from(Agency).where(
-            Agency.agency_ref_id.in_([f"MA00{i}" for i in range(1, 7)])
+    assert (
+        db.scalar(
+            select(func.count())
+            .select_from(Agency)
+            .where(Agency.agency_ref_id.in_([f"MA00{i}" for i in range(1, 7)]))
         )
-    ) == 6
+        == 6
+    )
     assert db.scalar(select(func.count()).select_from(Spare)) == 40
 
 
@@ -502,10 +517,11 @@ def test_demo_offsets_stagger_the_fleet(db):
 
 
 def test_every_aircraft_has_exactly_five_parts(db):
-    counts = dict(db.execute(
-        select(AircraftPart.aircraft_id, func.count())
-        .group_by(AircraftPart.aircraft_id)
-    ).all())
+    counts = dict(
+        db.execute(
+            select(AircraftPart.aircraft_id, func.count()).group_by(AircraftPart.aircraft_id)
+        ).all()
+    )
     assert len(counts) == 8
     assert set(counts.values()) == {5}
 
@@ -513,28 +529,23 @@ def test_every_aircraft_has_exactly_five_parts(db):
 def test_only_the_engine_is_not_simulated(db):
     for part in db.scalars(select(Part)):
         assert part.is_simulated == (part.code != "engine")
-        assert part.method == ("rul_xgb_fd001" if part.code == "engine"
-                               else "maintenance_burden_v1")
+        assert part.method == (
+            "rul_xgb_fd001" if part.code == "engine" else "maintenance_burden_v1"
+        )
 
 
 def test_part_codes_are_the_five_specified(db):
-    assert {p.code for p in db.scalars(select(Part))} == {
-        "engine", "radar", "gear", "hyd", "fuel"
-    }
+    assert {p.code for p in db.scalars(select(Part))} == {"engine", "radar", "gear", "hyd", "fuel"}
     assert {p.sort_order for p in db.scalars(select(Part))} == {1, 2, 3, 4, 5}
 
 
 def test_health_is_within_range_everywhere(db):
-    lo, hi = db.execute(
-        select(func.min(AircraftPart.health), func.max(AircraftPart.health))
-    ).one()
+    lo, hi = db.execute(select(func.min(AircraftPart.health), func.max(AircraftPart.health))).one()
     assert 0.0 <= lo <= hi <= 1.0
 
 
 def test_rul_is_within_the_cap_everywhere(db):
-    lo, hi = db.execute(
-        select(func.min(Aircraft.rul), func.max(Aircraft.rul))
-    ).one()
+    lo, hi = db.execute(select(func.min(Aircraft.rul), func.max(Aircraft.rul))).one()
     assert 0 <= lo <= hi <= 125
 
 

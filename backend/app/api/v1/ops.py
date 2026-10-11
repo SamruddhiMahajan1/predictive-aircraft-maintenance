@@ -1,4 +1,5 @@
 """Operational endpoints — health, readiness, seed, demo controls."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
@@ -154,9 +155,16 @@ def audit_trail(
     stmt = stmt.order_by(AuditLog.at.desc()).limit(limit)
     return {
         "items": [
-            {"at": a.at, "actor": a.actor_name, "entity": a.entity,
-             "entity_id": a.entity_id, "action": a.action,
-             "before": a.before, "after": a.after, "request_id": a.request_id}
+            {
+                "at": a.at,
+                "actor": a.actor_name,
+                "entity": a.entity,
+                "entity_id": a.entity_id,
+                "action": a.action,
+                "before": a.before,
+                "after": a.after,
+                "request_id": a.request_id,
+            }
             for a in stmt.all()
         ],
         "subscribers": bus.subscriber_count,
