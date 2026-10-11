@@ -5,9 +5,22 @@ import { fleet } from '../data/fleet.js';
 import { PARTS } from '../data/parts.js';
 import { subH } from '../lib/health.js';
 import { SFG, SFM } from './config.js';
-import FRAG_COMMON from './subFaultShaders.glsl?raw';
-import FRAG_EMISSIVE from './subFaultEmissive.glsl?raw';
-import { FRAG_COLOR } from './subFaultShaders.js';
+
+const FRAG_COMMON = 
+  '#include <common>\n' +
+  'varying float vT;\n' +
+  'uniform vec3 uH;\n' +
+  'uniform float uT;\n' +
+  'float zn(float a,float b,float t){return smoothstep(a-.02,a+.02,t)*' +
+  '(1.-smoothstep(b-.02,b+.02,t));}';
+
+const FRAG_EMISSIVE = 
+  'totalEmissiveRadiance+=vec3(1.,.04,.04)*smoothstep(.35,.65,dmg)*' +
+  '(.3+.25*sin(uT*5.));';
+
+const FRAG_COLOR = (d) => 
+  'float dmg=' + d + ';' +
+  '\ndiffuseColor.rgb=mix(diffuseColor.rgb,vec3(.9,.03,.03),smoothstep(.2,.6,dmg));';
 
 const { PR } = ctx;
 
@@ -83,7 +96,7 @@ export function setupGlb(o, k) {
         .replace('#include <common>', FRAG_COMMON)
         .replace('#include <color_fragment>', FRAG_COLOR(d))
         .replace('#include <emissivemap_fragment>', FRAG_EMISSIVE);
-    });
+    };
   });
   o.userData.rng = [mn, len];
 }

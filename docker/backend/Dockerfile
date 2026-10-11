@@ -12,8 +12,7 @@ COPY backend/pyproject.toml ./
 # The feature contract lives at the repository root and is a build input, not a runtime
 # one: it is pip-installed into the venv below, so nothing under ml/ is COPYed into the
 # runtime stage. `rul.contract` imports only the standard library.
-COPY ml/pyproject.toml ./ml/pyproject.toml
-COPY ml/src/ ./ml/src/
+COPY ml/ ./ml/
 RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
  && /opt/venv/bin/pip install "./ml" \
