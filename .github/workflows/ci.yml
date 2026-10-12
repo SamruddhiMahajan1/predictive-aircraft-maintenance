@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, dev, develop, shubham]
   pull_request:
   workflow_dispatch:
 
@@ -196,7 +196,8 @@ jobs:
       - name: Contract tests
         run: pytest tests -q
       - name: Contract parity (training path == serving path)
-        run: python -c "from rul.contract import FEATURE_ORDER, build_matrix, build_matrix_per_row_regime; print(f'contract: {len(FEATURE_ORDER)} features, per-row regime OK')"
+        run: |
+          python -c "from rul.contract import FEATURE_ORDER, build_matrix, build_matrix_per_row_regime; print(f'contract: {len(FEATURE_ORDER)} features, per-row regime OK')"
 
   images:
     name: Docker · build both images
