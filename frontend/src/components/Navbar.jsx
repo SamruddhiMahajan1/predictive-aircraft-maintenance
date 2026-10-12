@@ -43,6 +43,15 @@ function ModelBadge({ model, connected, apiReachable }) {
       </span>
     );
   }
+  if (model.drift_warning || (model.drift && model.drift.length)) {
+    const w = model.drift_warning || `${model.drift.length} sensor(s) drifting`;
+    return (
+      <span className="backend-badge connecting" title={`Baseline drift: ${w}. Served inputs diverge from shipped regime_baselines — see GET /healthz.`}>
+        <span className="dot amber" />
+        Drift
+      </span>
+    );
+  }
   return (
     <span className="backend-badge online" title={`RUL and health from model ${model.version}, z-scored per regime.`}>
       <span className="dot green" />

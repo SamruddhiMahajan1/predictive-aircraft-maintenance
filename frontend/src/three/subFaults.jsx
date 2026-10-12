@@ -121,15 +121,16 @@ export function finGlb(o, k) {
 
 // Per-frame animation of a sub-fault part.
 export function subFaultAnim(pr, t, dt, po) {
-  const { stage, cam } = ctx;
+  const { cam } = ctx;
   const k = app.cur;
   const e = fleet[app.sel];
   const H = [0, 1, 2].map((i) => subH(e, k, i));
   const known = H.every((x) => x != null);
   const H2 = H.map((x) => x ?? 1);
   const pul = .5 + .5 * Math.sin(t / 180);
-  const w = stage.clientWidth;
-  const h2 = stage.clientHeight;
+  // Phase 4.6: cached dimensions — stage.clientWidth per frame forced layout.
+  const w = rt.stageW || 800;
+  const h2 = rt.stageH || 600;
   const sf = pr.sf;
   const bad = known && H2.some((x) => x < .6);
   if (pr.U) {

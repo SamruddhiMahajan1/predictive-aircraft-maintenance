@@ -51,7 +51,7 @@ export function buildFuelSystem() {
 
 // Fuel level, leak drips, pump speed, status LEDs and fault tags depend on the three sub-component healths.
 export function animateFuel(pr, t, dt, po) {
-  const { stage, cam } = ctx;
+  const { cam } = ctx;
  const e=fleet[app.sel],H=[0,1,2].map(i=>subH(e,'fuel',i)??1),f=pr.f,pul=.5+.5*Math.sin(t/180),ph1=t/1000;
  const lvl=-14+28*(.62-.22*(1-clamp(H[0]/.6)))+Math.sin(t/900)*.5;pr.sg.position.y=lvl;pr.sg.rotation.set(.03*Math.sin(t/800),0,.03*Math.sin(t/1100+1));pr.surf.scale.y=2*Math.sqrt(Math.max(1,196-lvl*lvl));
  f.updateMatrixWorld(true);pr.plane.setFromNormalAndCoplanarPoint(new THREE.Vector3(0,-1,0).transformDirection(f.matrixWorld),new THREE.Vector3(0,lvl,0).applyMatrix4(f.matrixWorld));
@@ -62,6 +62,6 @@ export function animateFuel(pr, t, dt, po) {
  const sp=[.4*pf,.45*Math.min(pf,.35+.65*clamp(H[2]/.6))*(H[2]<.6?.65+.35*Math.sin(t/140):1),.45*pf,.3];
  pr.flows.forEach((q,i)=>{q.ph+=dt*sp[i];q.ms.forEach((m,j)=>{q.c.getPointAt(((q.ph+j/q.ms.length)%1+1)%1,m.position);m.material.opacity=po;m.material.color.setHex(H[i==0?0:i==3?0:i==1?1:2]<.4&&i==2?0xff6a3a:0xffc34d)})});
  const leak=H[0]<.6,sev=1-clamp(H[0]/.6);pr.drips.forEach((d,j)=>{const u=((ph1*(.7+.5*sev)+j/5)%1);d.visible=leak;d.position.y=-15-u*u*18;d.material.opacity=po});pr.pud.material.opacity=po*(leak?.25+.4*sev:0);
- const w=stage.clientWidth,h2=stage.clientHeight,bad=H.some(x=>x<.6);
+  const w = rt.stageW || 800, h2 = rt.stageH || 600, bad=H.some(x=>x<.6);
  [ctx.FT.t,ctx.FT.p,ctx.FT.v].forEach((d,i)=>{if(H[i]<.6&&rt.tz==1){_v.copy(pr.anc[i]);f.localToWorld(_v);_v.project(cam);d.style.display='block';d.style.left=((_v.x+1)/2*w)+'px';d.style.top=((1-_v.y)/2*h2-30)+'px';d.style.background='#d4162f';d.textContent=FMSG[i]+', '+Math.round(H[i]*100)+'%'}else d.style.display='none'});
  const s=ctx.FT.s;s.style.display=rt.tz==1?'block':'none';s.textContent=bad?'Fault detected in fuel system':'Fuel system normal';s.style.color=bad?'#ff4d5e':'#3ddc84';s.style.borderColor=bad?'#ff4d5e':'#3ddc84'}

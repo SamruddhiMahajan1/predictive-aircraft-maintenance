@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger,
@@ -31,11 +31,13 @@ SENSOR_COLUMNS = (
     "s7",
     "s8",
     "s9",
+    "s10",
     "s11",
     "s12",
     "s13",
     "s14",
     "s15",
+    "s16",
     "s17",
     "s20",
     "s21",
@@ -67,7 +69,7 @@ class HealthSnapshot(Base):
     health: Mapped[float] = mapped_column(Numeric(4, 3))
     risk_level: Mapped[str] = mapped_column(risk_level_enum)
     recorded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="snapshots")
@@ -75,7 +77,13 @@ class HealthSnapshot(Base):
 
 
 class EngineTelemetry(Base):
-    """3 operating settings + the 15 informative C-MAPSS sensors (s6 included)."""
+    """3 operating settings + the informative C-MAPSS sensors.
+
+    s10/s16 are constant in FD001 but live in FD002/FD003/FD004, and the pooled
+    contract scores them there — hence nullable columns rather than their absence.
+    Existing FD001 rows backfill NULL (unknown, honestly) rather than 0.0, which
+    would z-score into a garbage feature.
+    """
 
     __tablename__ = "engine_telemetry"
     __table_args__ = (
@@ -98,18 +106,20 @@ class EngineTelemetry(Base):
     s7: Mapped[float] = mapped_column(Numeric(12, 4))
     s8: Mapped[float] = mapped_column(Numeric(12, 4))
     s9: Mapped[float] = mapped_column(Numeric(12, 4))
+    s10: Mapped[float | None] = mapped_column(Numeric(12, 4))
     s11: Mapped[float] = mapped_column(Numeric(12, 4))
     s12: Mapped[float] = mapped_column(Numeric(12, 4))
     s13: Mapped[float] = mapped_column(Numeric(12, 4))
     s14: Mapped[float] = mapped_column(Numeric(12, 4))
     s15: Mapped[float] = mapped_column(Numeric(12, 4))
+    s16: Mapped[float | None] = mapped_column(Numeric(12, 4))
     s17: Mapped[float] = mapped_column(Numeric(12, 4))
     s20: Mapped[float] = mapped_column(Numeric(12, 4))
     s21: Mapped[float] = mapped_column(Numeric(12, 4))
     regime: Mapped[int] = mapped_column(SmallInteger, default=0)
     source: Mapped[str] = mapped_column(String(16), default="cmapss")
     recorded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="telemetry")
@@ -138,7 +148,7 @@ class ComponentHealth(Base):
     combustor: Mapped[float | None] = mapped_column(Numeric(4, 3))
     lpc: Mapped[float | None] = mapped_column(Numeric(4, 3))
     recorded_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="component_health")
@@ -166,6 +176,6 @@ class MlPrediction(Base):
     model_version: Mapped[str] = mapped_column(String(48))
     latency_ms: Mapped[float] = mapped_column(Numeric(8, 2))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
     aircraft: Mapped[Aircraft] = relationship(back_populates="predictions")

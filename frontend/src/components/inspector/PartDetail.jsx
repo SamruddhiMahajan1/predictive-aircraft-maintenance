@@ -17,8 +17,10 @@ const ENG_MODULES = ['fan', 'hpc', 'hpt', 'lpt'];
 // arithmetic. Previously all three were fabricated locally, so the inspector could quote
 // an agency and a lead time the work order it creates was never booked with.
 export default function PartDetail({ e }) {
+  if (!e) return <p className="note">No aircraft selected.</p>;
   const k = app.cur;
   const p = PARTS[k];
+  if (!p) return <p className="note">Unknown part.</p>;
   const h = ph(e, k);
   const risk = partRisk(e, k) || (h == null ? null : rk(h));
   const d = partDetail(e, k);

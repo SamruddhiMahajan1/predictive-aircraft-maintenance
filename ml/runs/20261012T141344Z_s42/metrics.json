@@ -1,0 +1,24 @@
+{
+  "best_iteration": 90,
+  "cv_rmse_mean": 19.170235815987677,
+  "cv_rmses": [
+    16.247133921987913,
+    21.10288994882733,
+    21.19181443463197,
+    16.940557011790993,
+    20.368783762700193
+  ],
+  "data_sha256": {
+    "RUL_FD001": "a19c8ec94931949d0485bdc35118206e9c81c4547b422efb9cf86f4ceddbceca",
+    "test_FD001": "3cda7109ce17bafb5443f2ac926cfcf88154b941b8c4cf95eb55d1ddd6f52851",
+    "train_FD001": "963b5e22825b34d8b21c69e1aeb4af3e647050eb672ee8834ba4b5d91d2de0f8"
+  },
+  "gate_failures": [],
+  "has_holdout": true,
+  "holdout_mae": 11.682754603979228,
+  "holdout_r2": 0.8530038519164629,
+  "holdout_rmse": 15.913047815264184,
+  "n_folds": 5,
+  "n_holdout_units": 20,
+  "n_train_units": 80
+}

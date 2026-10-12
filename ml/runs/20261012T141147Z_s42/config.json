@@ -1,0 +1,39 @@
+{
+  "datasets": [
+    "FD001"
+  ],
+  "features": {
+    "excluded": [
+      "unit",
+      "cycle",
+      "RUL"
+    ],
+    "rolling_ddof": 0,
+    "rolling_window": 5,
+    "zscore_by": "regime"
+  },
+  "gates": {
+    "max_cv_rmse": 21.0,
+    "max_mae": 20.0,
+    "max_test_rmse": 25.0,
+    "min_r2": 0.8
+  },
+  "model": {
+    "colsample_bytree": 0.8,
+    "early_stopping_rounds": 50,
+    "learning_rate": 0.05,
+    "max_depth": 6,
+    "min_child_weight": 3,
+    "n_estimators": 1000,
+    "reg_lambda": 1.0,
+    "subsample": 0.8
+  },
+  "name": "fd001",
+  "rul_cap": 125,
+  "seed": 42,
+  "split": {
+    "groups": "unit",
+    "strategy": "group_shuffle",
+    "test_size": 0.2
+  }
+}

@@ -352,8 +352,12 @@ def test_fan_component_degrades_at_end_of_life():
         health = result["component_health"]
         assert "fan" in health
         assert 0.0 <= health["fan"] <= 1.0
-        assert health["fan"] != 1.0 or max(abs(z[s]) for s in ("s8", "s13")) < 1.15, (
-            "fan reads perfectly healthy while its inputs are outside the healthy anchor"
+        # Phase 1 gate (docs/16 §6): end-of-life fan must read degraded, not
+        # merely "not exactly 1.0". s8/s13 at EOL sit ~dozens of MADs out, so
+        # < 0.5 is conservative; the disjunct below only tolerates a healthy
+        # reading when the inputs really are inside the healthy anchor.
+        assert health["fan"] < 0.5 or max(abs(z[s]) for s in ("s8", "s13")) < 1.15, (
+            "fan reads healthy at end of life while its inputs are outside the healthy anchor"
         )
     finally:
         ms._handle = previous
@@ -394,6 +398,46 @@ def regime_block_or_skip(handle):
     return block
 
 
+@has_artifact
+def test_pooled_subsets_score_s10_from_raw_telemetry():
+    """s10 must reach the scorer on subsets that measure it (FD002/FD003/FD004).
+
+    The read path dropped s10/s16, so multi-subset windows fed 0.0-raw into the
+    z-scorer exactly where training saw real values (FD003 22.5 vs 20.2 served).
+    Presence of s10 in the deviation scores is the regression signal: before the
+    fix the key was absent (raw dropped at read); a constant-subset sensor such as
+    FD003's s16 stays absent, which is correct rather than a gap.
+    """
+    from app.ml import model_store as ms
+    from app.ml.attribution import z_scores
+    from app.seed.cmapss import _read_train
+
+    subset = "FD003"
+    path = _SETTINGS.cmapss_file(subset, "test")
+    if not path.exists():
+        pytest.skip(f"{path} not staged")
+    previous = ms._handle
+    try:
+        handle = model_store.load(force=True)
+        if not handle.ready or handle.requires_scaler:
+            pytest.skip("pooled z-score artifact not staged")
+        from app.ml.features import regime_block
+
+        if "s10" not in regime_block(handle.stats, 0, subset):
+            pytest.skip(f"no s10 baseline for {subset}")
+        units = _read_train(path, subset)
+        unit = next(iter(sorted(units)))
+        cycles = units[unit]
+        window = [cycles[c] for c in sorted(cycles)[-30:]]
+        assert "s10" in window[-1]["sensors"], "read path drops s10 again"
+        z = z_scores(window, handle.stats, 0, subset)
+        assert "s10" in z, "s10 scored nowhere — the multi-subset skew is back"
+        assert all(v == v and abs(v) != float("inf") for v in z.values())
+        assert "s16" not in z, "FD003 never measures s16; it must stay skipped, not zero-filled"
+    finally:
+        ms._handle = previous
+
+
 def _measured_sensors(subset: str) -> set[str]:
     """Sensors the raw telemetry of `subset` actually carries on cycle 1.
 
@@ -430,13 +474,35 @@ def test_baseline_stats_cover_every_sensor():
     from app.ml.features import regime_block
 
     block = regime_block(payload, 0, _SETTINGS.replay_subset)
-    # Every sensor the replayed subset actually measures must have a baseline. The
-    # contract may name more (the pooled one adds s10/s16, constant in FD001), and those
-    # are legitimately absent from FD001's block -- asserting the two sets are equal
-    # would demand a baseline for a sensor FD001 never measures.
+    # Every sensor the replayed subset actually measures must have a baseline, unless
+    # it is constant there: rows carry s10/s16 on every subset, but FD001's block
+    # legitimately omits them (std 0 — scoring a constant is 0.0 by definition).
+    # Asserting bare set equality would demand a baseline for a sensor with no spread
+    # to describe, and silently passing a missing baseline for a varying sensor is
+    # exactly the s10/s16 multi-subset skew this suite now guards against.
     measured = set(_measured_sensors(_SETTINGS.replay_subset))
     contract_s = handle_base_sensors()
-    assert set(block) == measured & contract_s, sorted((measured & contract_s) ^ set(block))
+    assert set(block) <= measured & contract_s, sorted(set(block) - (measured & contract_s))
+    missing = (measured & contract_s) - set(block)
+    if missing:
+        from app.seed.cmapss import _read_train
+
+        units = _read_train(
+            _SETTINGS.cmapss_file(_SETTINGS.replay_subset, "train"), _SETTINGS.replay_subset
+        )
+        for sensor in sorted(missing):
+            vals = [
+                row["sensors"][sensor]
+                for cycles in units.values()
+                for row in cycles.values()
+                if sensor in row.get("sensors", {})
+            ]
+            mean = sum(vals) / max(1, len(vals))
+            std = (sum((v - mean) ** 2 for v in vals) / max(1, len(vals))) ** 0.5
+            assert std < 1e-6, (
+                f"{sensor} varies in {_SETTINGS.replay_subset} (std {std:.4f}) "
+                f"but has no baseline — the s10/s16 serving skew, back again"
+            )
     assert set(block) >= set(SENSORS), sorted(set(SENSORS) - set(block))
     assert all("median" in v and "mad" in v for v in block.values())
     # and anything the contract wants but this subset does not measure must be absent,
@@ -482,6 +548,9 @@ def test_predictions_are_deterministic(client):
     ]
     for result in results:
         result.pop("latency_ms")
+        # Phase 1 gate (docs/16 §6): determinism is meaningless when the
+        # fallback heuristic is answering — pin that the model served.
+        assert result["model"]["fallback"] is False
     assert all(result == results[0] for result in results)
 
 

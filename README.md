@@ -95,7 +95,7 @@ each with its own damage-zone shading that responds to live health:
 - Maintenance plan table with CSV export and a +10/+20/+30-cycle lookahead slider.
 - Live sensor table showing the 14 most attribution-weighted C-MAPSS sensors, ranked by
   deviation, so an operator can see *which* sensor is driving a health drop.
-- Role-based access control: commander, maintenance officer, viewer.
+- No authentication: every operator sees the same console (see [Security model](#security-model)).
 
 ---
 
@@ -184,7 +184,7 @@ Open **<http://localhost:8080>**.
 | `http://localhost:8000/healthz` | Liveness, dependency and ML status |
 | `ws://localhost:8080/ws/fleet` | Live telemetry stream |
 
-Sign in with any of the [demo accounts](#demo-accounts).
+There is no sign-in screen — the console opens directly (see [Security model](#security-model)).
 
 `make setup` is idempotent. If you already have the dataset, or prefer to fetch it
 yourself, `make fetch-data` is the only required step and `make migrate && make seed` the
@@ -838,16 +838,10 @@ run exactly one.
 
 ## Demo accounts
 
-Seeded by `python -m app.seed.run`. **Demo fixtures — remove or rotate before deploying.**
-The sign-in screen offers `commander` as a one-click shortcut only when `VITE_DEMO_MODE=true`
-(a dev build, or an explicit build-arg opt-in). A production build shows the
-username/password form, no shortcut, and no copy of the fixture credentials.
-
-| Role | Username | Password | Can do |
-|---|---|---|---|
-| Commander | `commander` | `commander123` | Everything, plus agency oversight and seeding |
-| Maintenance officer | `officer` | `officer123` | Work orders, spares, bookings, alert acknowledgement |
-| Viewer | `viewer` | `viewer123` | Read-only |
+There are none. Migration `b7e3f1a9c2d4` removed the `users` table and every login
+route along with it; `python -m app.seed.run` seeds aircraft, parts, spares and
+telemetry only. If you need per-operator identity, put an authenticating reverse
+proxy in front of `/api/` and `/ws` (see [Security model](#security-model)).
 
 ---
 

@@ -1,11 +1,21 @@
-import { useStore, selectFleetStats } from '../state/useStore.js';
+import { memo, useMemo } from 'react';
+import { useStoreSelector, selectFleetStats } from '../state/useStore.js';
+import { getVersion } from '../state/store.js';
 import { fleet } from '../data/fleet.js';
 import { PARTS } from '../data/parts.js';
 import { pc, shortId } from '../lib/fleetStats.js';
 import { rul, ready } from '../lib/health.js';
 
-export default function Kpis() {
-  const { n, nr, nCrit, avg, lo, loRul, w0, availability, serverBacked } = selectFleetStats();
+function KpisInner() {
+  // Subscribe to the version counter only; derive stats once per emit.
+  // Previously useStore() + selectFleetStats() ran the derivation twice per
+  // paint across Kpis/FleetHealth with zero memoization (docs/16 FE2).
+  const v = useStoreSelector(getVersion);
+  const { n, nr, nCrit, avg, lo, loRul, w0, availability, serverBacked } = useMemo(
+    () => selectFleetStats(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [v],
+  );
   const grounded = fleet.filter((e) => e.rul != null && !ready(e));
   const cycles = fleet.reduce((a, e) => Math.max(a, e.cycle || 0), 0);
 
@@ -38,3 +48,5 @@ export default function Kpis() {
     </div>
   );
 }
+
+export default memo(KpisInner);

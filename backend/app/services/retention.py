@@ -2,7 +2,8 @@
 
 Why this exists
 ---------------
-`replay.py` commits one transaction per aircraft per tick, and each writes an
+`replay.py` commits one transaction per tick (Phase 2: formerly one per aircraft
+per tick), each writing an
 `engine_telemetry`, `component_health`, `health_snapshot` and `ml_prediction` row
 (`write_engine_prediction`), and *nothing else in the app ever deletes them*. `alert` is
 naturally bounded by `uq_alert_live`, but these four tables are append-only by design,
@@ -74,6 +75,17 @@ TARGETS: tuple[tuple[Any, InstrumentedAttribute], ...] = (
     (MlPrediction, MlPrediction.created_at),
 )
 
+# Phase 3 M4 scale decision (docs/16): no range partitioning yet. All four
+# high-volume tables key ON CONFLICT on UNIQUE(aircraft_id, cycle); partitioning
+# on recorded_at would force re-keying to (recorded_at, aircraft_id, cycle) and
+# change the upsert semantics the replay depends on. Deferred until ml_prediction
+# approaches ~10⁷ rows (~17 days at 8 rows/tick × 3000 ticks/h); autovacuum
+# scale_factor=0.05 (migration c69f5fe8dc18) bounds bloat until then.
+# `stock_movement` IS pruned below (30-day horizon, low volume but unbounded);
+# `audit_log` is intentionally never pruned (docs/11 § — the audit trail is the
+# record of who-did-what and its growth is orders of magnitude slower).
+STOCK_RETENTION_HOURS = 24 * 30
+
 
 def prune_once(settings: Settings | None = None, *, now: datetime | None = None) -> dict[str, int]:
     """Delete rows older than the horizon. Returns per-table counts; `{}` if disabled.
@@ -95,6 +107,14 @@ def prune_once(settings: Settings | None = None, *, now: datetime | None = None)
             # single most expensive thing the service does.
             result = db.execute(delete(model).where(column < cutoff))
             counts[model.__tablename__] = max(0, result.rowcount or 0)
+        # stock_movement: the one table list_spares used to load without bound.
+        # Low volume, so a generous 30-day horizon — bounds growth without ever
+        # touching the audit trail.
+        from ..models.maintenance import StockMovement
+
+        stock_cutoff = (now or datetime.now(UTC)) - timedelta(hours=STOCK_RETENTION_HOURS)
+        result = db.execute(delete(StockMovement).where(StockMovement.created_at < stock_cutoff))
+        counts[StockMovement.__tablename__] = max(0, result.rowcount or 0)
         db.commit()
     return counts
 
