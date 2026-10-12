@@ -76,24 +76,24 @@ fetch-model: ## Download the trained boosters into backend/data/ml/$(FDT_ML_VARI
 	@$(COMPOSE) --profile bootstrap run --rm model-fetch
 
 train: ## Train with ml/configs/all.toml (installs ml first, docs/16 §10.2)
-	@$(PY) -m pip install -e ml
-	@$(PY) -m rul.train --config all.toml 2>/dev/null || $(PY) -m rul train --config all.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
+	@$(PY) -m pip install -e "ml[train]"
+	@$(PY) -m rul train --config all.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
 
 train-fd001: ## Fast FD001-only training
-	@$(PY) -m pip install -e ml
+	@$(PY) -m pip install -e "ml[train]"
 	@$(PY) -m rul train --config fd001.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
 
 train-all: ## Full pooled training (FD001-FD004)
-	@$(PY) -m pip install -e ml
+	@$(PY) -m pip install -e "ml[train]"
 	@$(PY) -m rul train --config all.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
 
 ml-validate: ## Validate staged C-MAPSS files + contract parity fixture
-	@$(PY) -m pip install -e ml
+	@$(PY) -m pip install -e "ml[train]"
 	@$(PY) -m rul validate --fixture
 	@$(PY) -m pytest ml/tests -q
 
 ml-dry-run: ## Prove the pipeline executes on 2 engines without writing artifacts
-	@$(PY) -m pip install -e ml
+	@$(PY) -m pip install -e "ml[train]"
 	@$(PY) -m rul train --config fd001.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs --dry-run
 
 migrate: ## Apply database migrations

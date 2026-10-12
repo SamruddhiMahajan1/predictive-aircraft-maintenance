@@ -27,6 +27,11 @@ def group_kfold(units: list[str], *, n_splits: int, seed: int) -> list[tuple[lis
         raise ImportError("train extra required: pip install 'rul[train]'") from exc
     import numpy as np
 
+    # Clamp folds to the number of groups: dry-run (2 engines -> 1 train unit)
+    # must not raise "n_splits=2 greater than n_samples=1".
+    n_splits = max(1, min(n_splits, len(units)))
+    if n_splits < 2:
+        return []
     groups = np.array(units)
     X = np.zeros((len(units), 1))
     folds = []
