@@ -6,8 +6,8 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import MetaData, create_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
+from sqlalchemy import Engine, MetaData, create_engine
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from ..core.config import Settings, get_settings
 
@@ -35,13 +35,13 @@ class TimestampMixin:
     )
 
 
-_engine = None
-_replay_engine = None
-_Session: sessionmaker | None = None
-_ReplaySession: sessionmaker | None = None
+_engine: Engine | None = None
+_replay_engine: Engine | None = None
+_Session: sessionmaker[Session] | None = None
+_ReplaySession: sessionmaker[Session] | None = None
 
 
-def get_engine(settings: Settings | None = None):
+def get_engine(settings: Settings | None = None) -> Engine:
     global _engine
     if _engine is None:
         s = settings or get_settings()
@@ -91,14 +91,14 @@ def bound_threadpool(capacity: int | None = None) -> None:
         limiter.total_tokens = limit
 
 
-def get_sessionmaker(settings: Settings | None = None) -> sessionmaker:
+def get_sessionmaker(settings: Settings | None = None) -> sessionmaker[Session]:
     global _Session
     if _Session is None:
         _Session = sessionmaker(bind=get_engine(settings), autoflush=False, expire_on_commit=False)
     return _Session
 
 
-def get_replay_engine(settings: Settings | None = None):
+def get_replay_engine(settings: Settings | None = None) -> Engine:
     """Dedicated engine for the replay loop (docs/16 Phase 2.2).
 
     The replay holds ~2 connections permanently and issues 8 serialised round
@@ -127,7 +127,7 @@ def get_replay_engine(settings: Settings | None = None):
     return _replay_engine
 
 
-def get_replay_sessionmaker(settings: Settings | None = None) -> sessionmaker:
+def get_replay_sessionmaker(settings: Settings | None = None) -> sessionmaker[Session]:
     global _ReplaySession
     if _ReplaySession is None:
         _ReplaySession = sessionmaker(

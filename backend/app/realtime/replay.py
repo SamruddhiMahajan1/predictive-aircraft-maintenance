@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from ..core.config import Settings, get_settings
 from ..core.logging import Timer
-from ..db.session import get_replay_sessionmaker
+from ..db.session import get_replay_sessionmaker, get_sessionmaker
 from ..domain.health import EmaState, engine_health_from_rul
 from ..domain.rules import do_by_cycle, risk_level
 from ..ml import inference
@@ -47,14 +47,14 @@ class TickEvent:
     health: float
     risk: str
     prediction: dict[str, Any]
-    do_by: int
+    do_by: int | None
     telemetry_rows: list[dict[str, Any]]
 
 
 class ReplayEngine:
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.task: asyncio.Task | None = None
+        self.task: asyncio.Task[None] | None = None
         self.paused = False
         self.tick_count = 0
         self.running = False
@@ -243,6 +243,9 @@ class ReplayEngine:
             aircraft.current_cycle = next_cycle
             EMA[aircraft.id] = EmaState.empty()  # reset smoothing (docs/09 §1.2)
             log.info("%s wrapped to cycle %d", aircraft.code, next_cycle)
+            if row is None:  # pathological unit with no rows at all: skip, don't crash the tick
+                log.warning("%s has no C-MAPSS rows; skipping", aircraft.code)
+                return None
 
         window = cmapss.window(unit, next_cycle, self.settings.ml_window)
         prediction = inference.predict(window, current_cycle=next_cycle)
@@ -341,7 +344,7 @@ class ReplayEngine:
         await bus.publish(alert_raised(await asyncio.to_thread(_write)))
 
     # ── controls ──────────────────────────────────────────────────────────────
-    def status(self) -> dict:
+    def status(self) -> dict[str, Any]:
         return {
             "running": self.running,
             "paused": self.paused,

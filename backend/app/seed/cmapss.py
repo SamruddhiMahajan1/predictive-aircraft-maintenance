@@ -53,7 +53,7 @@ def namespaced(subset: str, unit: int) -> str:
     return f"{subset}{UNIT_SEP}{unit}"
 
 
-def split_unit(key: str) -> tuple[str | None, int | None]:
+def split_unit(key: int | str) -> tuple[str | None, int | None]:
     """Inverse of `namespaced`. Returns (None, None) for a bare integer unit id."""
     if UNIT_SEP not in str(key):
         return None, None
@@ -68,7 +68,7 @@ class CMapss:
     """In-memory C-MAPSS rows, keyed `subset -> unit -> cycle -> row`."""
 
     def __init__(self) -> None:
-        self.subsets: dict[str, dict[int, dict[int, dict]]] = {}
+        self.subsets: dict[str, dict[int, dict[int, dict[str, Any]]]] = {}
         self.rul_labels: dict[str, list[float]] = {}
         self.replay: str | None = None
         self.loaded = False
@@ -115,7 +115,7 @@ class CMapss:
 
     # ── access ────────────────────────────────────────────────────────────────
     @property
-    def rows(self) -> dict[int, dict[int, dict]]:
+    def rows(self) -> dict[int, dict[int, dict[str, Any]]]:
         """Units of the replayed subset, under their bare ids. What replay walks."""
         return self.subsets.get(self.replay or "", {})
 
@@ -123,13 +123,13 @@ class CMapss:
     def units(self) -> list[int]:
         return sorted(self.rows)
 
-    def row(self, unit_id: int | str, cycle: int) -> dict | None:
+    def row(self, unit_id: int | str, cycle: int) -> dict[str, Any] | None:
         subset, unit = split_unit(unit_id)
         subset = subset or self.replay or ""
         unit = int(unit) if unit is not None else int(unit_id)
         return self.subsets.get(subset, {}).get(unit, {}).get(cycle)
 
-    def window(self, unit_id: int | str, end_cycle: int, size: int = 30) -> list[dict]:
+    def window(self, unit_id: int | str, end_cycle: int, size: int = 30) -> list[dict[str, Any]]:
         """Trailing `size` rows up to and including end_cycle."""
         row = self.row(unit_id, end_cycle)
         subset, unit = split_unit(unit_id)
@@ -149,7 +149,7 @@ class CMapss:
         }
 
 
-def _read_train(path: Path, subset: str) -> dict[int, dict[int, dict]]:
+def _read_train(path: Path, subset: str) -> dict[int, dict[int, dict[str, Any]]]:
     # numpy is imported here, not at module scope: `app.main` imports this module
     # at startup, and numpy costs ~1s on a free-tier shared CPU before the port
     # is even bound. Parsing already runs in a background thread, so the import
@@ -159,7 +159,7 @@ def _read_train(path: Path, subset: str) -> dict[int, dict[int, dict]]:
     # reshape: loadtxt drops the row axis for a single-row file, and FD004 has
     # engine 1 alone in small extracts.
     data = np.loadtxt(path).reshape(-1, len(COLUMNS))
-    units: dict[int, dict[int, dict]] = {}
+    units: dict[int, dict[int, dict[str, Any]]] = {}
     for raw in data:
         unit, cycle = int(raw[0]), int(raw[1])
         units.setdefault(unit, {})[cycle] = {

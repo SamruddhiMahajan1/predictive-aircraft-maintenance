@@ -16,7 +16,7 @@ class Event(BaseModel):
     seq: int | None = None
     ts: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
-    def envelope(self, seq: int | None = None) -> dict:
+    def envelope(self, seq: int | None = None) -> dict[str, Any]:
         return {"type": self.type, "payload": self.payload, "seq": seq, "ts": self.ts.isoformat()}
 
 
@@ -72,27 +72,27 @@ def health_updated(
     return Event(type="health.updated", payload=payload)
 
 
-def alert_raised(alert: dict) -> Event:
+def alert_raised(alert: dict[str, Any]) -> Event:
     return Event(type="alert.raised", payload=alert)
 
 
-def alert_acked(payload: dict) -> Event:
+def alert_acked(payload: dict[str, Any]) -> Event:
     return Event(type="alert.acked", payload=payload)
 
 
-def work_order_created(payload: dict) -> Event:
+def work_order_created(payload: dict[str, Any]) -> Event:
     return Event(type="work_order.created", payload=payload)
 
 
-def work_order_updated(payload: dict) -> Event:
+def work_order_updated(payload: dict[str, Any]) -> Event:
     return Event(type="work_order.updated", payload=payload)
 
 
-def spare_reserved(payload: dict) -> Event:
+def spare_reserved(payload: dict[str, Any]) -> Event:
     return Event(type="spare.reserved", payload=payload)
 
 
-def booking_created(payload: dict) -> Event:
+def booking_created(payload: dict[str, Any]) -> Event:
     return Event(type="booking.created", payload=payload)
 
 

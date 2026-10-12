@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
+from typing import Final
 
 from ..core.config import get_settings
 from .events import Event
@@ -25,22 +26,22 @@ class _Overflow:
         return "<overflow>"
 
 
-OVERFLOW = _Overflow()
+OVERFLOW: Final = _Overflow()
 
 
 class EventBus:
     def __init__(self, maxsize: int | None = None) -> None:
-        self._subscribers: set[asyncio.Queue[Event]] = set()
+        self._subscribers: set[asyncio.Queue[Event | _Overflow]] = set()
         self._maxsize = maxsize or get_settings().ws_queue_size
         self._dropped = 0
         self._loop: asyncio.AbstractEventLoop | None = None
 
-    def subscribe(self) -> asyncio.Queue[Event]:
-        q: asyncio.Queue[Event] = asyncio.Queue(maxsize=self._maxsize)
+    def subscribe(self) -> asyncio.Queue[Event | _Overflow]:
+        q: asyncio.Queue[Event | _Overflow] = asyncio.Queue(maxsize=self._maxsize)
         self._subscribers.add(q)
         return q
 
-    def unsubscribe(self, q: asyncio.Queue[Event]) -> None:
+    def unsubscribe(self, q: asyncio.Queue[Event | _Overflow]) -> None:
         self._subscribers.discard(q)
 
     @property

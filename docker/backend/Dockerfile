@@ -17,7 +17,7 @@ RUN python -m venv /opt/venv \
  && /opt/venv/bin/pip install --upgrade pip \
  && /opt/venv/bin/pip install "./ml" \
  && /opt/venv/bin/pip install "." \
- && /opt/venv/bin/pip uninstall -y nvidia-nccl-cu12 \
+ && /opt/venv/bin/pip uninstall -y nvidia-nccl-cu12 pip setuptools \
  && find /opt/venv -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true \
  && find /opt/venv -type f \( -name "*.pyc" -o -name "*.pyo" -o -name "*.a" -o -name "*.h" -o -name "*.hpp" \) -delete 2>/dev/null || true \
  && find /opt/venv -type d \( -name "tests" -o -name "test" -o -name "doc" -o -name "docs" -o -name "examples" \) -exec rm -rf {} + 2>/dev/null || true

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean,
@@ -21,6 +22,15 @@ from sqlalchemy.dialects.postgresql import ENUM
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
+
+if TYPE_CHECKING:
+    # Forward references for relationship targets. Runtime resolution goes
+    # through the SQLAlchemy class registry (all models are imported in
+    # app/models/__init__.py); these imports exist only for type checking and
+    # avoid circular imports at runtime.
+    from .alert import Alert
+    from .maintenance import AgencyBooking, WorkOrder
+    from .telemetry import ComponentHealth, EngineTelemetry, HealthSnapshot, MlPrediction
 
 
 class RiskLevel(StrEnum):

@@ -204,17 +204,18 @@ def build_matrix_per_row_regime(
     needed = contract_sensors(feature_order)
     imputed: set[str] = set()
     regimes: list[int] = []
-    scorer_cache: dict[int, ZScorer | None] = {}
+    scorer_cache: dict[int, ZScorer] = {}
     series: list[dict[str, float]] = []
 
-    def _scorer_for(regime: int) -> ZScorer | None:
+    def _scorer_for(regime: int) -> ZScorer:
         if regime not in scorer_cache:
-            try:
-                scorer_cache[regime] = regime_z_scorer(
-                    stats, regime, subset=subset, eps=eps
-                )
-            except ContractError:
-                scorer_cache[regime] = None
+            # A missing baseline block must fail LOUDLY, not score silently.
+            # Swallowing the ContractError here fed the z-trained booster raw
+            # values, which predicts confidently from the wrong scale -- the
+            # exact silent-misprediction mode the contract exists to prevent.
+            # The error surfaces in predict() as a window_rejected fallback
+            # naming the subset, distinct from short_window/inference_error.
+            scorer_cache[regime] = regime_z_scorer(stats, regime, subset=subset, eps=eps)
         return scorer_cache[regime]
 
     for row in window:
@@ -236,8 +237,7 @@ def build_matrix_per_row_regime(
         regime = classify_regime(settings, centroids)
         regimes.append(regime)
         scorer = _scorer_for(regime)
-        if scorer is not None:
-            values.update(scorer(values))
+        values.update(scorer(values))
         if regime_column in feature_order:
             values[regime_column] = float(regime + regime_offset)
         series.append(values)

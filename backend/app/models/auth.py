@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import BigInteger, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -23,8 +24,8 @@ class AuditLog(Base):
     at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
-    before: Mapped[dict | None] = mapped_column(JSONB)
-    after: Mapped[dict | None] = mapped_column(JSONB)
+    before: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    after: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     request_id: Mapped[str | None] = mapped_column(String(32))
 
     __table_args__ = (

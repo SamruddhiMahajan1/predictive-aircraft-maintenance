@@ -49,6 +49,11 @@ python_version = "3.11"
 strict = true
 plugins = []
 exclude = ["alembic/versions"]
+# The `rul` contract package lives in ../ml/src and is installed editable, but
+# mypy cannot always follow the editable hook — so resolve it from source.
+# (CI also passes ../ml/src/rul/contract explicitly, which adds the same dir;
+# this just makes the resolution independent of CLI arguments.)
+mypy_path = ["../ml/src"]
 
 [[tool.mypy.overrides]]
 module = ["xgboost.*", "numpy.*"]

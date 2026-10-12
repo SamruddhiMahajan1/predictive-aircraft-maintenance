@@ -22,6 +22,12 @@ train = [
   "scikit-learn>=1.5",
   "matplotlib>=3.9",
 ]
+# Test runner. Neither the runtime deps above nor requirements.lock (pinned
+# training/runtime repro) provide pytest, so without this extra the CI
+# `pytest tests -q` step fails with "command not found" (exit 127).
+test = [
+  "pytest>=8.3",
+]
 
 [tool.setuptools]
 # Shipped as a normal directory rather than a zip, so `py.typed` and the `.py` sources

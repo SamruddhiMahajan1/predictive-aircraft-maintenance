@@ -109,10 +109,17 @@ def test_autovacuum_scale_factor_is_configured():
 
 
 def test_created_at_default_is_utc_aware():
-    """created_at defaults must be timezone-aware (not naive utcnow).
+    """created_at server defaults must be timezone-aware (not naive utcnow).
 
     Naive utcnow into a timestamptz is interpreted in the session TimeZone, so
     a DB on Asia/Kolkata stored 5h30m wrong.
+
+    The correct server form is plain `now()`: it returns a timestamptz instant,
+    which is unambiguous in every session TimeZone. `timezone('utc', now())`
+    may look more explicit, but it returns a tz-NAIVE timestamp (UTC wall
+    clock) that Postgres re-interprets in the session TimeZone on insert —
+    i.e. exactly the 5h30m bug on a non-UTC session. Migration c69 set the
+    timezone() form; d41 deliberately reverted it to now().
     """
     from sqlalchemy import inspect
 
@@ -129,7 +136,7 @@ def test_created_at_default_is_utc_aware():
         cols = insp.get_columns(table)
         col = next(c for c in cols if c["name"] == "created_at")
         default = str(col["default"])
-        # Postgres renders it with an explicit cast; accept both forms.
-        assert "timezone('utc'" in default and "now()" in default, (
-            f"{table}.created_at default is {default!r}, expected timezone('utc', now())"
+        # now() with optional cast; reject the naive-looking timezone() form.
+        assert default.replace("::timestamp with time zone", "").strip() == "now()", (
+            f"{table}.created_at default is {default!r}, expected now()"
         )

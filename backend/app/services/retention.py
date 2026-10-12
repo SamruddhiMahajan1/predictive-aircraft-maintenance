@@ -41,14 +41,15 @@ import asyncio
 import logging
 from contextlib import suppress
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import delete
+from sqlalchemy.engine import CursorResult
 from sqlalchemy.orm import InstrumentedAttribute
 
 from ..core.config import Settings, get_settings
 from ..core.logging import Timer
-from ..db.session import get_sessionmaker
+from ..db.session import Base, get_sessionmaker
 from ..models.telemetry import (
     ComponentHealth,
     EngineTelemetry,
@@ -68,7 +69,7 @@ MIN_INTERVAL_SECONDS = 1.0
 #
 # `ml_prediction` is the odd one out: it stamps `created_at`, the other three
 # `recorded_at`.
-TARGETS: tuple[tuple[Any, InstrumentedAttribute], ...] = (
+TARGETS: tuple[tuple[type[Base], InstrumentedAttribute[datetime]], ...] = (
     (EngineTelemetry, EngineTelemetry.recorded_at),
     (ComponentHealth, ComponentHealth.recorded_at),
     (HealthSnapshot, HealthSnapshot.recorded_at),
@@ -105,7 +106,9 @@ def prune_once(settings: Settings | None = None, *, now: datetime | None = None)
         for model, column in TARGETS:
             # One set-based DELETE per table. Deleting row-by-row here would be the
             # single most expensive thing the service does.
-            result = db.execute(delete(model).where(column < cutoff))
+            # Session.execute is typed as returning Result, but a DELETE always
+            # yields a CursorResult — the cast keeps `rowcount` visible.
+            result = cast(CursorResult[Any], db.execute(delete(model).where(column < cutoff)))
             counts[model.__tablename__] = max(0, result.rowcount or 0)
         # stock_movement: the one table list_spares used to load without bound.
         # Low volume, so a generous 30-day horizon — bounds growth without ever
@@ -113,7 +116,10 @@ def prune_once(settings: Settings | None = None, *, now: datetime | None = None)
         from ..models.maintenance import StockMovement
 
         stock_cutoff = (now or datetime.now(UTC)) - timedelta(hours=STOCK_RETENTION_HOURS)
-        result = db.execute(delete(StockMovement).where(StockMovement.created_at < stock_cutoff))
+        result = cast(
+            CursorResult[Any],
+            db.execute(delete(StockMovement).where(StockMovement.created_at < stock_cutoff)),
+        )
         counts[StockMovement.__tablename__] = max(0, result.rowcount or 0)
         db.commit()
     return counts
@@ -124,7 +130,7 @@ class RetentionPruner:
 
     def __init__(self, settings: Settings | None = None) -> None:
         self.settings = settings or get_settings()
-        self.task: asyncio.Task | None = None
+        self.task: asyncio.Task[None] | None = None
         self.passes = 0
 
     @property

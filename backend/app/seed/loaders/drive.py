@@ -144,7 +144,7 @@ def load_agencies(db: Session) -> int:
 def load_spares(db: Session) -> int:
     components = _component_ref_index(db)
     rows = [
-        {**r, "component_ref_id": components.get(r.get("component_id"))}
+        {**r, "component_ref_id": components.get(r.get("component_id") or "")}
         for r in rename(
             read_csv("spare_parts.csv"),
             {
@@ -194,7 +194,7 @@ def load_tech_records(db: Session) -> int:
         {
             **r,
             "aircraft_ref_id": refs.get(r["aircraft_id"]),
-            "component_ref_id": components.get(r.get("component_id")),
+            "component_ref_id": components.get(r.get("component_id") or ""),
             "record_id": r["maintenance_id"],
         }
         for r in source
@@ -231,7 +231,7 @@ def load_snags(db: Session) -> int:
         {
             **r,
             "aircraft_ref_id": refs.get(r["aircraft_id"]),
-            "technical_record_id": records.get(r.get("maintenance_id")),
+            "technical_record_id": records.get(r.get("maintenance_id") or ""),
         }
         for r in read_csv("snag_logs.csv")
         if r["aircraft_id"] in refs

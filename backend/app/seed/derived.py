@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from datetime import date
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -51,18 +52,18 @@ TASK_TYPE_TO_ACTION = {
 def seed_part_catalog(db: Session) -> int:
     """Part → agency by specialisation, else by lowest cost × turnaround (docs/01 §6)."""
     all_agencies = list(db.scalars(select(Agency)))
-    by_spec: dict[str, list] = {}
-    for agency in all_agencies:
-        by_spec.setdefault(agency.specialisation, []).append(agency)
+    by_spec: dict[str, list[Agency]] = {}
+    for candidate in all_agencies:
+        by_spec.setdefault(candidate.specialisation, []).append(candidate)
 
-    def cheapest(candidates: list) -> object | None:
+    def cheapest(candidates: list[Agency]) -> Agency | None:
         # the general pool has no specialisation match, so rank it by cost
         return min(
             candidates, key=lambda a: float(a.cost_multiplier) * a.turnaround_days, default=None
         )
 
     for code, label, order, simulated, method, spec in PART_CATALOG:
-        agency = cheapest(by_spec.get(spec) or by_spec.get("general") or [])
+        agency: Agency | None = cheapest(by_spec.get(spec) or by_spec.get("general") or [])
         part = db.scalar(select(Part).where(Part.code == code))
         if part is None:
             part = Part(
@@ -119,7 +120,7 @@ def seed_aircraft_parts(db: Session) -> int:
     """Engine health is filled by the ML service; the other four come from
     maintenance_burden_v1 (docs/01 §4)."""
     parts = {p.code: p for p in db.scalars(select(Part))}
-    snags_by = {}
+    snags_by: dict[int, list[dict[str, Any]]] = {}
     today = date.today()
     for snag in db.scalars(select(Snag)):
         snags_by.setdefault(snag.aircraft_ref_id, []).append(
@@ -130,7 +131,7 @@ def seed_aircraft_parts(db: Session) -> int:
                 else 0.0,
             }
         )
-    records_by = {}
+    records_by: dict[int, list[dict[str, Any]]] = {}
     for record in db.scalars(select(TechnicalRecord)):
         records_by.setdefault(record.aircraft_ref_id, []).append(
             {
@@ -238,7 +239,7 @@ def seed_work_orders(db: Session) -> int:
     count = 0
     for row in rows:
         ref = refs.get(row["aircraft_id"])
-        component = components.get(row.get("component_id"))
+        component = components.get(row.get("component_id") or "")
         aircraft = aircraft_by_ref.get(ref.id) if ref else None
         if aircraft is None or component is None:
             continue
@@ -261,7 +262,7 @@ def seed_work_orders(db: Session) -> int:
                 reference=f"WO-{len(rows) + count:04d}",
                 aircraft_id=aircraft.id,
                 part_id=part.id,
-                action=TASK_TYPE_TO_ACTION.get(row.get("task_type"), "Routine check"),
+                action=TASK_TYPE_TO_ACTION.get(row.get("task_type") or "", "Routine check"),
                 due_date=_parse_date(row.get("due_date")),
                 due_cycle=_parse_int(row.get("due_cycles")),
                 status="open",
@@ -288,6 +289,8 @@ def _parse_date(value: str | None) -> date:
 
 
 def _parse_int(value: str | None) -> int | None:
+    if value is None:
+        return None
     try:
         return int(float(value))
     except (TypeError, ValueError):

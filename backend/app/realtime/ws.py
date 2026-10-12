@@ -10,11 +10,11 @@ from contextlib import suppress
 from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
-from ..core.config import get_settings
+from ..core.config import Settings, get_settings
 from ..db.session import get_sessionmaker
 from ..models.fleet import Aircraft
-from .bus import OVERFLOW, bus
-from .events import ClientMessage, connection_ready, pong
+from .bus import _Overflow, bus
+from .events import ClientMessage, Event, connection_ready, pong
 
 log = logging.getLogger(__name__)
 router = APIRouter()
@@ -24,7 +24,7 @@ WS_INTERNAL = 1011
 WS_TRY_AGAIN_LATER = 1013
 
 
-def allowed_origins(settings) -> set[str]:
+def allowed_origins(settings: Settings) -> set[str]:
     """Origins permitted to open the fleet socket.
 
     `FDT_CORS_ORIGINS` is the explicit allowlist. On top of it, Render injects
@@ -73,7 +73,7 @@ async def ws_fleet(
     next_seq = 0
     seq_lock = asyncio.Lock()
 
-    async def send(event) -> None:
+    async def send(event: Event) -> None:
         nonlocal next_seq
         async with seq_lock:
             next_seq += 1
@@ -98,7 +98,7 @@ async def ws_fleet(
         while True:
             event = await queue.get()
 
-            if event is OVERFLOW:
+            if isinstance(event, _Overflow):
                 # Fell behind the fleet. Closing makes the client reconnect and resync
                 # from REST rather than sit on a socket that will never update again.
                 log.warning("subscriber fell behind — closing with %d", WS_TRY_AGAIN_LATER)

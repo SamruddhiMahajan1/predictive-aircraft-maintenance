@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import (
     BigInteger,
@@ -22,6 +23,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..db.session import Base
 from .fleet import risk_level_enum
+
+if TYPE_CHECKING:
+    # Aircraft/Part live in .fleet (imported at runtime only for the enum
+    # above); the relationship targets resolve via the class registry.
+    from .fleet import Aircraft, Part
 
 SENSOR_COLUMNS = (
     "s2",
@@ -171,8 +177,8 @@ class MlPrediction(Base):
     hpc: Mapped[float | None] = mapped_column(Numeric(4, 3))
     hpt: Mapped[float | None] = mapped_column(Numeric(4, 3))
     lpt: Mapped[float | None] = mapped_column(Numeric(4, 3))
-    top_sensors: Mapped[list] = mapped_column(JSONB)
-    deviation: Mapped[dict] = mapped_column(JSONB)
+    top_sensors: Mapped[list[Any]] = mapped_column(JSONB)
+    deviation: Mapped[dict[str, Any]] = mapped_column(JSONB)
     model_version: Mapped[str] = mapped_column(String(48))
     latency_ms: Mapped[float] = mapped_column(Numeric(8, 2))
     created_at: Mapped[datetime] = mapped_column(

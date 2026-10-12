@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -11,6 +13,8 @@ from ..domain import aggregation
 from ..domain.rules import PART_ORDER, engine_spare, recommended_action, worst_part
 from ..domain.scheduling import back_in_service_breakdown, cycles_to_date
 from ..ml import model_store
+from ..models.fleet import Aircraft, AircraftPart
+from ..models.maintenance import Agency, Spare
 from ..repositories import fleet_repo as repo
 
 PARTS_NOTE = (
@@ -19,18 +23,18 @@ PARTS_NOTE = (
 )
 
 
-def _resolve(db: Session, code_or_id: str | int):
+def _resolve(db: Session, code_or_id: str | int) -> Aircraft:
     aircraft = repo.get_aircraft(db, code_or_id)
     if aircraft is None:
         raise NotFoundError(f"Aircraft {code_or_id!r} not found")
     return aircraft
 
 
-def _part_rows(db: Session, aircraft_id: int) -> list[dict]:
+def _part_rows(db: Session, aircraft_id: int) -> list[dict[str, Any]]:
     return _part_rows_from(repo.parts_for_aircraft(db, aircraft_id))
 
 
-def _part_rows_from(rows) -> list[dict]:
+def _part_rows_from(rows: Iterable[AircraftPart]) -> list[dict[str, Any]]:
     return [
         {
             "part": p.part.code,
@@ -49,13 +53,13 @@ def _part_rows_from(rows) -> list[dict]:
 
 
 # ── 27 ─────────────────────────────────────────────────────────────────────────
-def fleet_summary(db: Session, window: int = 60) -> dict:
+def fleet_summary(db: Session, window: int = 60) -> dict[str, Any]:
     from ..realtime.bus import bus
 
     aircraft_rows = repo.list_aircraft(db)
     snapshots = repo.fleet_snapshots(db, window)
 
-    parts_flat: list[dict] = []
+    parts_flat: list[dict[str, Any]] = []
     for aircraft, ap, part in repo.all_parts_with_aircraft(db):
         parts_flat.append(
             {
@@ -97,7 +101,9 @@ def fleet_summary(db: Session, window: int = 60) -> dict:
 
 
 # ── 28 ─────────────────────────────────────────────────────────────────────────
-def list_aircraft(db: Session, risk: str | None = None, ready: bool | None = None) -> dict:
+def list_aircraft(
+    db: Session, risk: str | None = None, ready: bool | None = None
+) -> dict[str, Any]:
     # Every aircraft's parts in one query: the per-aircraft call used to add 8
     # round trips to each poll, all serialised on one free-tier worker.
     parts_by_aircraft = repo.all_parts_by_aircraft(db)
@@ -130,7 +136,7 @@ def list_aircraft(db: Session, risk: str | None = None, ready: bool | None = Non
 
 
 # ── 29 ─────────────────────────────────────────────────────────────────────────
-def aircraft_detail(db: Session, code_or_id: str | int) -> dict:
+def aircraft_detail(db: Session, code_or_id: str | int) -> dict[str, Any]:
     a = _resolve(db, code_or_id)
     parts = _part_rows(db, a.id)
     return {
@@ -153,7 +159,7 @@ def aircraft_detail(db: Session, code_or_id: str | int) -> dict:
 
 
 # ── 30 ─────────────────────────────────────────────────────────────────────────
-def engine_detail(db: Session, code_or_id: str | int, window: int = 60) -> dict:
+def engine_detail(db: Session, code_or_id: str | int, window: int = 60) -> dict[str, Any]:
     from ..domain.scheduling import back_in_service_breakdown  # noqa: F401
 
     a = _resolve(db, code_or_id)
@@ -199,6 +205,8 @@ def engine_detail(db: Session, code_or_id: str | int, window: int = 60) -> dict:
 
     from ..domain.rules import COMPONENT_SENSOR_MAP
 
+    weakest_sensors = COMPONENT_SENSOR_MAP.get(weakest or "")
+    weakest_sensor = weakest_sensors[0] if weakest_sensors else None
     return {
         "aircraft": a.code,
         "current_cycle": a.current_cycle,
@@ -209,7 +217,7 @@ def engine_detail(db: Session, code_or_id: str | int, window: int = 60) -> dict:
         "mission_ready": a.mission_ready,
         "components": components,
         "weakest_component": weakest,
-        "weakest_component_sensor": (COMPONENT_SENSOR_MAP.get(weakest) or [None])[0],
+        "weakest_component_sensor": weakest_sensor,
         "engine_spare": (
             {
                 "part_ref_id": spare.part_ref_id,
@@ -255,7 +263,7 @@ class Logistics:
         self.agencies = repo.agencies_by_id(db)
         self.parts = {p.id: p for p in repo.list_parts(db)}
 
-    def for_part(self, row, part_code: str):
+    def for_part(self, row: AircraftPart, part_code: str) -> tuple[Spare | None, Agency | None]:
         spare = row.spare or self.by_component.get(_component_display(row.worst_component) or "")
         part = self.parts.get(row.part_id)
         agency = row.agency or (
@@ -265,7 +273,7 @@ class Logistics:
 
 
 # ── 31 ─────────────────────────────────────────────────────────────────────────
-def part_detail(db: Session, code_or_id: str | int, part_code: str) -> dict:
+def part_detail(db: Session, code_or_id: str | int, part_code: str) -> dict[str, Any]:
     a = _resolve(db, code_or_id)
     if part_code not in PART_ORDER:
         raise NotFoundError(f"Unknown part {part_code!r}")
@@ -359,9 +367,9 @@ def part_detail(db: Session, code_or_id: str | int, part_code: str) -> dict:
 
 
 # ── 32 ─────────────────────────────────────────────────────────────────────────
-def fleet_heatmap(db: Session) -> dict:
+def fleet_heatmap(db: Session) -> dict[str, Any]:
     parts_by_aircraft = repo.all_parts_by_aircraft(db)  # one query, not eight
-    grouped: dict[str, list[dict]] = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for a in repo.list_aircraft(db):
         grouped[a.code] = aggregation.heatmap_matrix(
             _part_rows_from(parts_by_aircraft.get(a.id, []))
@@ -374,7 +382,7 @@ def fleet_heatmap(db: Session) -> dict:
 
 
 # ── 33 ─────────────────────────────────────────────────────────────────────────
-def fleet_actions(db: Session, limit: int = 5) -> dict:
+def fleet_actions(db: Session, limit: int = 5) -> dict[str, Any]:
     logistics = Logistics(db)
     rows = []
     for aircraft, ap, part in repo.all_parts_with_aircraft(db):
@@ -433,7 +441,7 @@ def fleet_actions(db: Session, limit: int = 5) -> dict:
 
 
 # ── 34 ─────────────────────────────────────────────────────────────────────────
-def maintenance_schedule(db: Session) -> dict:
+def maintenance_schedule(db: Session) -> dict[str, Any]:
     parts_by_aircraft = repo.all_parts_by_aircraft(db)
     open_orders = repo.open_work_orders(db)
     logistics = Logistics(db)
@@ -464,6 +472,11 @@ def maintenance_schedule(db: Session) -> dict:
             spare.lead_time_days if spare else 0,
             stock if stock is not None else 0,
         )["total"]
+        do_by_date = (
+            cycles_to_date(row.do_by_cycle, a.current_cycle, cycles_per_month)
+            if row.do_by_cycle
+            else None
+        )
         items.append(
             {
                 "aircraft": a.code,
@@ -473,11 +486,7 @@ def maintenance_schedule(db: Session) -> dict:
                 "risk": row.risk_level,
                 "action": recommended_action(row.risk_level),
                 "do_by_cycle": row.do_by_cycle,
-                "do_by_date": (
-                    cycles_to_date(row.do_by_cycle, a.current_cycle, cycles_per_month).isoformat()
-                    if row.do_by_cycle
-                    else None
-                ),
+                "do_by_date": do_by_date.isoformat() if do_by_date else None,
                 "do_by_in_cycles": (row.do_by_cycle - a.current_cycle if row.do_by_cycle else None),
                 "spare_status": status,
                 "spare_item": spare.item_name if spare else None,

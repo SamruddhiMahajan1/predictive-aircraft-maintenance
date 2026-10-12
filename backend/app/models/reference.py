@@ -77,7 +77,7 @@ class ComponentRef(Base):
     @property
     def implied_health(self) -> float | None:
         """1 - operating_cycles/life_limit_cycles — cross-check for ML health."""
-        if not self.life_limit_cycles:
+        if not self.life_limit_cycles or self.operating_cycles is None:
             return None
         return round(1 - self.operating_cycles / self.life_limit_cycles, 3)
 

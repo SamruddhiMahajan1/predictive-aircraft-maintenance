@@ -13,13 +13,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from ...core.config import get_settings
+from ...db.session import Base
 
 Mapper = dict[str, Callable[[Any], Any]]
 
 
-def rename(rows: Iterable[dict], mapping: dict[str, str]) -> list[dict]:
+def rename(rows: Iterable[dict[str, Any]], mapping: dict[str, str]) -> list[dict[str, Any]]:
     """Rename source column names to model column names (e.g. agency_id -> agency_ref_id)."""
-    out: list[dict] = []
+    out: list[dict[str, Any]] = []
     for row in rows:
         new = dict(row)
         for src, dst in mapping.items():
@@ -82,8 +83,8 @@ def _identity(v: Any) -> Any:
 # ── generic upsert ─────────────────────────────────────────────────────────────
 def upsert_all(
     db: Session,
-    model: type,
-    rows: Iterable[dict],
+    model: type[Base],
+    rows: Iterable[dict[str, Any]],
     keys: Sequence[str],
     mapper: Mapper,
 ) -> int:
@@ -101,20 +102,20 @@ def upsert_all(
     if missing:
         raise ValueError(f"{model.__name__}: mapper must include key columns {missing}")
 
-    existing: dict[tuple, Any] = {}
+    existing: dict[tuple[Any, ...], Any] = {}
     if len(key_set) == 1:
         only = next(iter(key_set))
-        for obj in db.scalars(select(model)):
-            existing[(getattr(obj, only),)] = obj
+        for item in db.scalars(select(model)):
+            existing[(getattr(item, only),)] = item
     else:
-        for obj in db.scalars(select(model)):
-            existing[tuple(getattr(obj, k) for k in key_set)] = obj
+        for item in db.scalars(select(model)):
+            existing[tuple(getattr(item, k) for k in key_set)] = item
 
     count = 0
     for row in rows:
         identity = tuple(_apply(row.get(k), mapper.get(k, _identity)) for k in key_set)
         values = {col: _apply(row.get(col), fn) for col, fn in mapper.items()}
-        obj = existing.get(identity)
+        obj: Base | None = existing.get(identity)
         if obj is None:
             obj = model(**values)  # mapper includes the key columns
             db.add(obj)
