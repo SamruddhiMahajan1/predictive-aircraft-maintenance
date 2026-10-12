@@ -21,7 +21,7 @@ import PartDetail from './inspector/PartDetail.jsx';
 // view; use it directly.
 export default function Inspector() {
   const app = useStore();
-  const e = fleet[app.sel];
+  const e = fleet[app.sel] ?? fleet[0];
   const key = app.sel + ':' + app.tgt + ':' + app.cur;
 
   const panelRef = useRef(null);
@@ -41,6 +41,11 @@ export default function Inspector() {
       return cache.current.el;
     }
     reused.current = false;
+    if (!e) {
+      const el = <Fragment key={key}><p className="note">No aircraft selected.</p></Fragment>;
+      cache.current.el = el;
+      return el;
+    }
     const el = <Fragment key={key}>{app.tgt ? <PartDetail e={e} /> : <AircraftSummary e={e} />}</Fragment>;
     cache.current.el = el;
     return el;

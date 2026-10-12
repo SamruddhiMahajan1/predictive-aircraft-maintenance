@@ -36,7 +36,9 @@ class TimestampMixin:
 
 
 _engine = None
+_replay_engine = None
 _Session: sessionmaker | None = None
+_ReplaySession: sessionmaker | None = None
 
 
 def get_engine(settings: Settings | None = None):
@@ -94,6 +96,44 @@ def get_sessionmaker(settings: Settings | None = None) -> sessionmaker:
     if _Session is None:
         _Session = sessionmaker(bind=get_engine(settings), autoflush=False, expire_on_commit=False)
     return _Session
+
+
+def get_replay_engine(settings: Settings | None = None):
+    """Dedicated engine for the replay loop (docs/16 Phase 2.2).
+
+    The replay holds ~2 connections permanently and issues 8 serialised round
+    trips per tick on a worker thread. Sharing the request pool meant the
+    lightest read endpoint 500ed at 20 concurrent clients; a separate pool
+    isolates the steady-state replay load from request bursts. Small on purpose:
+    ticks are serialised by `_tick_lock`, so depth > 2 is queue, not throughput.
+    """
+    global _replay_engine
+    if _replay_engine is None:
+        s = settings or get_settings()
+        is_postgres = str(s.database_url).startswith(("postgresql", "postgres"))
+        connect_args = (
+            {"connect_timeout": 5, "application_name": "fdt-replay"} if is_postgres else {}
+        )
+        _replay_engine = create_engine(
+            s.database_url,
+            echo=False,
+            pool_pre_ping=True,
+            pool_size=2,
+            max_overflow=2,
+            pool_timeout=s.db_pool_timeout,
+            pool_recycle=s.db_pool_recycle_seconds,
+            connect_args=connect_args,
+        )
+    return _replay_engine
+
+
+def get_replay_sessionmaker(settings: Settings | None = None) -> sessionmaker:
+    global _ReplaySession
+    if _ReplaySession is None:
+        _ReplaySession = sessionmaker(
+            bind=get_replay_engine(settings), autoflush=False, expire_on_commit=False
+        )
+    return _ReplaySession
 
 
 def get_db() -> Iterator[Any]:

@@ -15,6 +15,13 @@ from collections.abc import Sequence
 SPEC_SENSORS = ("s2", "s3", "s4", "s7", "s8", "s9", "s11", "s12",
                 "s13", "s14", "s15", "s17", "s20", "s21")
 SENSORS = SPEC_SENSORS[:3] + ("s6",) + SPEC_SENSORS[3:]   # 15, s6 included
+# Sensors that are constant in FD001 (std 0) but live in the other subsets: s10
+# varies in FD002/FD003/FD004, s16 in FD002/FD004 (measured, not inferred). The
+# pooled contract's 32-column order names both, so the serving path must read,
+# score and explain all 17 — dropping them here was a third train/serve skew
+# (docs/16 C2/C3 follow-up): training saw real s10/s16 while serving fed 0.0-raw.
+EXTRA_SENSORS = ("s10", "s16")
+POOLED_SENSORS = SENSORS + EXTRA_SENSORS   # 17, the pooled contract's sensor set
 ROLLING_SENSORS = ("s11", "s4", "s9", "s12", "s14", "s7")
 ROLLING_WINDOW = 5
 # Used when a derived column name carries no readable width (defensive; every column this
@@ -75,6 +82,8 @@ def contract_sensors(feature_order: Sequence[str]) -> tuple[str, ...]:
 __all__ = [
     "SPEC_SENSORS",
     "SENSORS",
+    "EXTRA_SENSORS",
+    "POOLED_SENSORS",
     "ROLLING_SENSORS",
     "ROLLING_WINDOW",
     "DEFAULT_ROLLING_WINDOW",

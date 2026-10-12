@@ -1,35 +1,20 @@
 import { useSyncExternalStore } from 'react';
 import { app, subscribe, getVersion } from './store.js';
 
-// Per-field selectors: components subscribe only to the slice they need.
-// Before: every emit() triggered all 11 subscribers, and fleetStats() was computed
-// twice per paint (Kpis.jsx:9, FleetHealth.jsx:57). Now components re-render only
-// when their slice actually changes.
-
-const noop = () => {};
-
-// Simple structural equality for shallow comparison of arrays/objects.
-function shallowEqual(a, b) {
-  if (a === b) return true;
-  if (!a || !b || typeof a !== 'object' || typeof b !== 'object') return false;
-  const ka = Object.keys(a), kb = Object.keys(b);
-  if (ka.length !== kb.length) return false;
-  for (const k of ka) if (!Object.prototype.hasOwnProperty.call(b, k) || a[k] !== b[k]) return false;
-  return true;
-}
-
+// Re-renders the calling component whenever the store emits. Returns the shared state object.
+//
+// The store is a single mutable `app` object plus a version counter. The hook
+// subscribes to the version (so every emit() forces a re-render) and returns
+// the live `app` object. getVersion is used for both the snapshot and the
+// server snapshot so SSR and client agree.
 export function useStore() {
-  return useSyncExternalStore(subscribe, getVersion, noop, app);
+  useSyncExternalStore(subscribe, getVersion, getVersion);
+  return app;
 }
 
 export function useStoreSelector(selector) {
-  const snapshot = useSyncExternalStore(
-    subscribe,
-    () => selector(app),
-    noop,
-    () => selector(app),
-  );
-  return snapshot;
+  useSyncExternalStore(subscribe, getVersion, getVersion);
+  return selector(app);
 }
 
 // Convenience selectors for the common slices.
@@ -49,27 +34,8 @@ export const selectApiReachable = () => app.apiReachable;
 export const selectModel = () => app.model;
 export const selectServerAlerts = () => app.serverAlerts;
 
-// Derived slice used by Kpis and FleetHealth: avoid double-computing fleetStats.
-// Uses a weak map keyed by the fleet array identity so the same fleet array
-// reuses the previous result without recomputing.
-const statsCache = new WeakMap();
-export function selectFleetStats() {
-  const fleetData = app.fleet || [];
-  if (!statsCache.has(fleetData)) {
-    statsCache.set(fleetData, computeStats(fleetData));
-  }
-  return statsCache.get(fleetData);
-}
-
-function computeStats(fleet) {
-  if (!fleet.length) return { total: 0, ready: 0, watch: 0, critical: 0, avgHealth: 0 };
-  let total = 0, ready = 0, watch = 0, critical = 0, healthSum = 0, count = 0;
-  for (const e of fleet) {
-    total++;
-    if (e.missionReady === true) ready++;
-    if (e.risk === 'watch') watch++;
-    if (e.risk === 'critical') critical++;
-    if (typeof e.engineHealth === 'number') { healthSum += e.engineHealth; count++; }
-  }
-  return { total, ready, watch, critical, avgHealth: count ? healthSum / count : 0 };
-}
+// Derived slice used by Kpis and FleetHealth. This is a plain derivation over
+// the fleet module + derived API aggregates (lib/fleetStats.js), not a store
+// subscription — callers must also call useStore() (or useStoreSelector) so
+// they re-render when the store emits.
+export { fleetStats as selectFleetStats } from '../lib/fleetStats.js';

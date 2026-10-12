@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import (
     Boolean,
@@ -52,7 +52,7 @@ class Alert(Base):
     acked_by: Mapped[int | None] = mapped_column(Integer)
     acked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="alerts")

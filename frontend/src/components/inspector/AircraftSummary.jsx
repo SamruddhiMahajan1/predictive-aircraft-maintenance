@@ -10,6 +10,7 @@ import { ph, partRisk, ready, rul, spare, agency } from '../../lib/health.js';
 // returns, rather than from a hardcoded table of stock levels and three invented
 // depots.
 export default function AircraftSummary({ e }) {
+  if (!e) return <p className="note">No aircraft selected.</p>;
   const ok = ready(e);
   const m = e.modelInfo;
   return (

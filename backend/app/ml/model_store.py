@@ -10,6 +10,7 @@ import json
 import logging
 import threading
 from collections.abc import Callable
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
@@ -42,6 +43,10 @@ class ModelHandle:
     warm: bool = False
     error: str | None = None
     gain_cache: dict[str, float] = field(default_factory=dict)
+    # Phase 6.2 drift sentinel: last ~30 raw values per sensor, recorded per
+    # predict() call from the latest window row. check_drift() compares live
+    # spread vs the shipped baseline MAD — a C2-class collapse surfaces here.
+    recent_raw: dict[str, list[float]] = field(default_factory=dict)
 
     # `manifest` is the historical attribute name for the contract document.
     @property
@@ -251,7 +256,7 @@ class ModelHandle:
         return not self.ready
 
     def describe(self) -> dict[str, Any]:
-        return {
+        out: dict[str, Any] = {
             "loaded": self.ready,
             "degraded": self.degraded,
             "version": self.version,
@@ -264,6 +269,32 @@ class ModelHandle:
             "warm": self.warm,
             **({"error": self.error} if self.error else {}),
         }
+        # Phase 6.2: drift sentinel state — empty until 20+ samples observed.
+        with suppress(Exception):
+            from .drift import check_drift
+            from .features import regime_block
+
+            if self.stats and self.recent_raw:
+                subset = self.subset or "FD001"
+                block = regime_block(self.stats, 0, subset)
+                drift = check_drift(self.recent_raw, block)
+                out["drift"] = drift
+                if drift:
+                    out["drift_warning"] = "; ".join(
+                        f"{d['sensor']} variance collapsed" for d in drift
+                    )
+        return out
+
+    def record_raw(self, sensors: dict[str, Any], *, keep: int = 30) -> None:
+        for k, v in (sensors or {}).items():
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                continue
+            buf = self.recent_raw.setdefault(str(k), [])
+            buf.append(f)
+            if len(buf) > keep:
+                del buf[: len(buf) - keep]
 
 
 _handle = ModelHandle()

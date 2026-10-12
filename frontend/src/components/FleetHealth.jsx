@@ -1,5 +1,7 @@
-import { selectFleetStats, selectFleet } from '../state/useStore.js';
-import { selectAircraft } from '../state/store.js';
+import { memo, useMemo } from 'react';
+import { useStoreSelector, selectFleetStats, selectFleet } from '../state/useStore.js';
+import { getVersion, selectAircraft } from '../state/store.js';
+const selectFleetSel = selectFleet;
 import { fleet } from '../data/fleet.js';
 import { PARTS, KEYS } from '../data/parts.js';
 import { C, hc } from '../lib/colors.js';
@@ -11,7 +13,9 @@ import { pc } from '../lib/fleetStats.js';
 // The bar counts come from /fleet/summary's risk_breakdown, so the total matches the
 // critical-parts KPI instead of being recounted from the client's own thresholds.
 function PartsMix() {
-  const { partsMix } = selectFleetStats();
+  const v = useStoreSelector(getVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const { partsMix } = useMemo(() => selectFleetStats(), [v]);
   const { healthy, watch, critical, total } = partsMix;
   const rows = KEYS.map((k) => {
     let sum = 0, n = 0, cr = 0;
@@ -52,9 +56,12 @@ function PartsMix() {
   );
 }
 
-export default function FleetHealth() {
-  const sel = selectFleet();
-  const { n, nr } = selectFleetStats();
+export default memo(function FleetHealth() {
+  const v = useStoreSelector(getVersion);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const sel = useMemo(() => selectFleetSel(), [v]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const { n, nr } = useMemo(() => selectFleetStats(), [v]);
   return (
     <section className="pn s5 rv" id="health">
       <div className="hd"><h2>Fleet health</h2><p>Engine life left, per aircraft</p></div>
@@ -99,4 +106,4 @@ export default function FleetHealth() {
       <PartsMix />
     </section>
   );
-}
+})

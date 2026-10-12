@@ -1,13 +1,11 @@
 import { ctx, rt, resetContext } from './context.js';
-import { app, setStatus } from '../state/store.js';
+import { setStatus } from '../state/store.js';
 import { createScene, resize } from './scene.js';
 import { buildHydraulics } from './models/hydraulics.js';
 import { buildFuelSystem } from './models/fuelSystem.js';
 import { buildArrows } from './arrows.js';
-import { createEngineTags, loadEngine } from './models/engine.js';
+import { createEngineTags } from './models/engine.js';
 import { loadJet } from './models/jet.js';
-import { loadLandingGear } from './models/landingGear.js';
-import { loadRadar } from './models/radar.js';
 import { attachInteraction } from './interaction.js';
 import { startLoop } from './loop.js';
 
@@ -27,12 +25,25 @@ export function createTwin(stage) {
   // stage becomes meaningful as fast as possible; gear/radar/engine follow in
   // the background. Previously Promise.all() held the "Loading models…" status
   // until the slowest of the four finished.
+  // Phase 4.8: the 3 non-hero models (~6.1 MB) are dynamic-imported only after
+  // the hero paints (idle callback, 1.5 s fallback) — nothing off the critical
+  // path. Static imports would bundle and fetch them with the initial chunk.
   loadJet()
-    .then(() => { if (!ctx.disposed) setStatus('Drag to rotate. Click a label to inspect a part.'); })
+    .then(() => {
+      if (!ctx.disposed) setStatus('Drag to rotate. Click a label to inspect a part.');
+      const idle = window.requestIdleCallback || ((fn) => setTimeout(fn, 1500));
+      idle(() => {
+        if (ctx.disposed) return;
+        Promise.all([
+          import('./models/landingGear.js').then((m) => m.loadLandingGear()),
+          import('./models/radar.js').then((m) => m.loadRadar()),
+          import('./models/engine.js').then((m) => m.loadEngine()),
+        ]).catch((e) => {
+          if (!ctx.disposed) setStatus('Could not load a model: ' + e.message);
+        });
+      });
+    })
     .catch((e) => { if (!ctx.disposed) setStatus('Could not load a model: ' + e.message); });
-  Promise.all([loadLandingGear(), loadRadar(), loadEngine()]).catch((e) => {
-    if (!ctx.disposed) setStatus('Could not load a model: ' + e.message);
-  });
 
   return {
     dispose() {
@@ -45,9 +56,6 @@ export function createTwin(stage) {
       // and the PMREM render target must be disposed explicitly, and the GL
       // context must be asked to force loss so the GPU driver releases memory.
       if (ctx.R) {
-        ctx.R.info.memory.geometries = 0;
-        ctx.R.info.memory.textures = 0;
-        ctx.R.info.memory.programs = 0;
         // Traverse the entire scene graph and dispose every GL resource.
         if (ctx.S) {
           ctx.S.traverse((obj) => {

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import BigInteger, DateTime, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
@@ -20,7 +20,9 @@ class AuditLog(Base):
     action: Mapped[str] = mapped_column(String(24))
     actor_id: Mapped[int | None] = mapped_column()
     actor_name: Mapped[str] = mapped_column(String(48))  # denormalised: survives deletion
-    at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.utcnow())
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
+    )
     before: Mapped[dict | None] = mapped_column(JSONB)
     after: Mapped[dict | None] = mapped_column(JSONB)
     request_id: Mapped[str | None] = mapped_column(String(32))

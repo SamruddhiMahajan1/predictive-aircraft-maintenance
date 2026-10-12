@@ -48,11 +48,14 @@ export function hideEngineTags() {
 
 // Per-frame: push module healths into the shader and place the tags over degraded modules.
 export function animateEngine(pr, e, t) {
-  const { stage, cam } = ctx;
+  const { cam } = ctx;
   const v = vec();
   // Module health now comes from the model's component_health, and is null until the
   // engine endpoint answers. `null < .6` is true, so an unanswered module used to tag
   // itself as fully degraded the moment the server stopped responding.
   const hs=Object.keys(ENG).map(k=>comp(e,k)??1);U.uH.value.set(hs[0],hs[1],hs[2],hs[3]);U.uT.value=t/1000;
-     Object.keys(ENG).forEach((k,i)=>{const g=hs[i],tg=TG[k];if(g<.6&&rt.tz==1){v.set(XMIN+ZC[k]*LEN+H.c[0],.85,0);EG.localToWorld(v);v.project(cam);tg.style.display='block';tg.style.left=((v.x+1)/2*stage.clientWidth)+'px';tg.style.top=((1-v.y)/2*stage.clientHeight-8)+'px';tg.textContent=ENG[k]+' '+Math.round((1-g)*100)+'% degraded'}else tg.style.display='none'})
+  // Phase 4.6: use cached rt.stageW/H (refreshed on resize in loop.js), not
+  // stage.clientWidth per frame — the read forced a synchronous layout each tick.
+  const W = rt.stageW || 800, H = rt.stageH || 600;
+     Object.keys(ENG).forEach((k,i)=>{const g=hs[i],tg=TG[k];if(g<.6&&rt.tz==1){v.set(XMIN+ZC[k]*LEN+H.c[0],.85,0);EG.localToWorld(v);v.project(cam);tg.style.display='block';tg.style.left=((v.x+1)/2*W)+'px';tg.style.top=((1-v.y)/2*H-8)+'px';tg.textContent=ENG[k]+' '+Math.round((1-g)*100)+'% degraded'}else tg.style.display='none'})
 }

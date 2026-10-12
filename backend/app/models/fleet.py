@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -60,38 +60,39 @@ class Aircraft(Base):
     demo_offset: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.utcnow(),
-        onupdate=lambda: datetime.utcnow(),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        server_default="now()",
     )
 
     aircraft_ref: Mapped[AircraftRef] = relationship(back_populates="aircraft")
     parts: Mapped[list[AircraftPart]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     work_orders: Mapped[list[WorkOrder]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     alerts: Mapped[list[Alert]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     bookings: Mapped[list[AgencyBooking]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     snapshots: Mapped[list[HealthSnapshot]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     telemetry: Mapped[list[EngineTelemetry]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     component_health: Mapped[list[ComponentHealth]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
     predictions: Mapped[list[MlPrediction]] = relationship(
-        back_populates="aircraft", cascade="all, delete-orphan"
+        back_populates="aircraft", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
@@ -108,10 +109,12 @@ class Part(Base):
 
     agency: Mapped[Agency | None] = relationship(back_populates="parts")
     aircraft_part: Mapped[list[AircraftPart]] = relationship(
-        back_populates="part", cascade="all, delete-orphan"
+        back_populates="part", cascade="all, delete-orphan", passive_deletes=True
     )
     work_orders: Mapped[list[WorkOrder]] = relationship(back_populates="part")
-    alerts: Mapped[list[Alert]] = relationship(back_populates="part", cascade="all, delete-orphan")
+    alerts: Mapped[list[Alert]] = relationship(
+        back_populates="part", cascade="all, delete-orphan", passive_deletes=True
+    )
     bookings: Mapped[list[AgencyBooking]] = relationship(back_populates="part")
     snapshots: Mapped[list[HealthSnapshot]] = relationship(back_populates="part")
 
@@ -144,8 +147,9 @@ class AircraftPart(Base):
     is_simulated: Mapped[bool] = mapped_column(Boolean, default=True)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.utcnow(),
-        onupdate=lambda: datetime.utcnow(),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        server_default="now()",
     )
 
     aircraft: Mapped[Aircraft] = relationship(back_populates="parts")

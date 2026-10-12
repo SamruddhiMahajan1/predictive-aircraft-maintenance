@@ -59,6 +59,10 @@ subset named by `FDT_ML_DATASET` (default `FD001`) is replayed. See
 Cross-validated (5-fold, grouped by engine): **RMSE 17.988 ± 1.487**,
 per-fold `[18.891, 18.693, 16.457, 19.874, 16.026]`.
 
+> Canonical numbers live in `ml/docs/MODEL_CARD.md`. The table above is the FD001-only
+> candidate's CV; the shipped pooled artifact reports CV RMSE 17.369 ± 0.950 and
+> official-test RMSE 17.942 / MAE 13.079 (docs/16 §4, reproduced exactly).
+
 Boosting stopped at **92 of 1000** rounds on the holdout, **83** on the full-data refit.
 Feature importance is dominated by `s4_rollmean5` (0.473) and `s11_rollmean5` (0.219) —
 T50 at the LPT outlet and static pressure at the HPC outlet, which are the sensors the

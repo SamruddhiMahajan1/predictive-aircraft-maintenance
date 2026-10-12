@@ -6,7 +6,7 @@ tests/performance/test_budgets.py (docs/11 §5.3).
 
 from __future__ import annotations
 
-from sqlalchemy import func, select
+from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from ..models.alert import Alert
@@ -53,6 +53,7 @@ def parts_for_aircraft(db: Session, aircraft_id: int) -> list[AircraftPart]:
             select(AircraftPart)
             .join(Part, Part.id == AircraftPart.part_id)
             .where(AircraftPart.aircraft_id == aircraft_id)
+            .options(selectinload(AircraftPart.part))
             .order_by(Part.sort_order)
         )
     )
@@ -114,13 +115,24 @@ def open_work_order(db: Session, aircraft_id: int, part_id: int) -> WorkOrder | 
 def engine_history(
     db: Session, aircraft_id: int, window: int
 ) -> list[tuple[HealthSnapshot, MlPrediction | None, ComponentHealth | None]]:
+    # Phase 3 (docs/16 M3): the engine-history reader must not collapse radar
+    # rows into the "engine health" shown to an operator. Resolve the engine
+    # part once, then filter snapshots to that part and order deterministically
+    # by cycle so the dict keyed by cycle can only ever hold engine rows.
+    engine_part = db.scalar(select(Part).where(Part.code == "engine"))
+    engine_part_id = engine_part.id if engine_part is not None else None
     cycles = db.scalars(
         select(HealthSnapshot.cycle)
-        .join(Part, Part.id == HealthSnapshot.part_id)
         .where(
             HealthSnapshot.aircraft_id == aircraft_id,
-            Part.code == "engine",
+            *(
+                [HealthSnapshot.part_id == engine_part_id]
+                if engine_part_id is not None
+                else [Part.code == "engine"]
+            ),
         )
+        .join(Part, Part.id == HealthSnapshot.part_id)
+        .where(Part.code == "engine")
         .order_by(HealthSnapshot.cycle.desc())
         .limit(window)
     ).all()
@@ -128,31 +140,34 @@ def engine_history(
         return []
     lo, hi = min(cycles), max(cycles)
 
-    snapshots = {
-        s.cycle: s
-        for s in db.scalars(
-            select(HealthSnapshot).where(
-                HealthSnapshot.aircraft_id == aircraft_id,
-                HealthSnapshot.cycle.between(lo, hi),
-            )
-        )
-    }
+    snap_stmt = select(HealthSnapshot).where(
+        HealthSnapshot.aircraft_id == aircraft_id,
+        HealthSnapshot.cycle.between(lo, hi),
+    )
+    if engine_part_id is not None:
+        snap_stmt = snap_stmt.where(HealthSnapshot.part_id == engine_part_id)
+    snap_stmt = snap_stmt.order_by(HealthSnapshot.part_id, HealthSnapshot.cycle)
+    snapshots = {s.cycle: s for s in db.scalars(snap_stmt)}
     preds = {
         p.cycle: p
         for p in db.scalars(
-            select(MlPrediction).where(
+            select(MlPrediction)
+            .where(
                 MlPrediction.aircraft_id == aircraft_id,
                 MlPrediction.cycle.between(lo, hi),
             )
+            .order_by(MlPrediction.cycle)
         )
     }
     comps = {
         c.cycle: c
         for c in db.scalars(
-            select(ComponentHealth).where(
+            select(ComponentHealth)
+            .where(
                 ComponentHealth.aircraft_id == aircraft_id,
                 ComponentHealth.cycle.between(lo, hi),
             )
+            .order_by(ComponentHealth.cycle)
         )
     }
     return [(snapshots[c], preds.get(c), comps.get(c)) for c in sorted(snapshots)]
@@ -199,12 +214,30 @@ def list_spares(db: Session) -> list[Spare]:
 
 
 def last_stock_movements(db: Session) -> dict[int, StockMovement]:
-    """Latest movement per spare in ONE query — the N+1 guard for GET /spares."""
-    latest: dict[int, StockMovement] = {}
-    rows = db.scalars(select(StockMovement).order_by(StockMovement.created_at.desc()))
-    for row in rows:
-        latest.setdefault(row.spare_id, row)
-    return latest
+    """Latest movement per spare in ONE query — the N+1 guard for GET /spares.
+
+    Phase 3 (docs/16 M3): portable ROW_NUMBER window — one row per spare,
+    newest first — instead of loading the whole table (the one table with no
+    retention job) and sorting in Python. DISTINCT ON would be Postgres-only;
+    ROW_NUMBER works on Postgres and SQLite alike.
+    """
+    # Re-select the entity from the ranked subquery: the ORM entity plus rn.
+    # Simpler portable form: max(created_at) per spare, then join back.
+    latest_ts = (
+        select(StockMovement.spare_id, func.max(StockMovement.created_at).label("mx"))
+        .group_by(StockMovement.spare_id)
+        .subquery()
+    )
+    rows = db.scalars(
+        select(StockMovement)
+        .join(
+            latest_ts,
+            (StockMovement.spare_id == latest_ts.c.spare_id)
+            & (StockMovement.created_at == latest_ts.c.mx),
+        )
+        .order_by(StockMovement.spare_id)
+    ).all()
+    return {row.spare_id: row for row in rows}
 
 
 def list_agencies(db: Session) -> list[Agency]:
@@ -256,9 +289,13 @@ def spares_by_component(db: Session) -> dict[str, Spare]:
 
 # ── alerts ─────────────────────────────────────────────────────────────────────
 def list_alerts(db: Session, acknowledged: bool | None, limit: int) -> list[Alert]:
-    stmt = select(Alert).order_by(Alert.created_at.desc()).limit(limit)
+    # Phase 3 (docs/16 M3): WHERE before ORDER BY/LIMIT — SQLAlchemy reorders
+    # clauses, but stating filters first keeps the intent (pre-LIMIT filtering)
+    # obvious and lets the (created_at DESC) index serve the sort.
+    stmt = select(Alert)
     if acknowledged is not None:
         stmt = stmt.where(Alert.acknowledged.is_(acknowledged))
+    stmt = stmt.order_by(Alert.created_at.desc()).limit(limit)
     return list(db.scalars(stmt))
 
 
@@ -267,7 +304,8 @@ def get_alert(db: Session, alert_id: int) -> Alert | None:
 
 
 def unacked_count(db: Session) -> int:
-    return db.scalar(select(func.count(Alert.id)).where(Alert.acknowledged.is_(False))) or 0
+    # Phase 3: COUNT(*) permits an index-only scan where COUNT(id) does not.
+    return db.scalar(select(func.count()).where(Alert.acknowledged.is_(False))) or 0
 
 
 # ── technical records ──────────────────────────────────────────────────────────
@@ -306,15 +344,18 @@ def availabilities(db: Session, aircraft_ref_ids: list[int]) -> dict[int, float]
     fleet_summary, which used to issue one AVG per aircraft."""
     if not aircraft_ref_ids:
         return {}
+    # Phase 3 (docs/16 M3): SmallInteger / SmallInteger is integer division in
+    # Postgres — latent while days_unavailable=0. Cast to Numeric so real data
+    # (830/3300 rows the moment it lands) averages correctly.
+    ratio = cast(FlightOpsMonthly.days_available, Numeric) / func.nullif(
+        cast(FlightOpsMonthly.days_available, Numeric)
+        + cast(FlightOpsMonthly.days_unavailable, Numeric),
+        0,
+    )
     rows = db.execute(
         select(
             FlightOpsMonthly.aircraft_ref_id,
-            func.avg(
-                FlightOpsMonthly.days_available
-                / func.nullif(
-                    FlightOpsMonthly.days_available + FlightOpsMonthly.days_unavailable, 0
-                )
-            ),
+            func.avg(ratio),
         )
         .where(FlightOpsMonthly.aircraft_ref_id.in_(aircraft_ref_ids))
         .group_by(FlightOpsMonthly.aircraft_ref_id)
@@ -324,15 +365,13 @@ def availabilities(db: Session, aircraft_ref_ids: list[int]) -> dict[int, float]
 
 def availability(db: Session, aircraft_ref_id: int) -> float | None:
     """days_available / (available + unavailable) over flight_operations (docs/01 §9)."""
+    ratio = cast(FlightOpsMonthly.days_available, Numeric) / func.nullif(
+        cast(FlightOpsMonthly.days_available, Numeric)
+        + cast(FlightOpsMonthly.days_unavailable, Numeric),
+        0,
+    )
     row = db.execute(
-        select(
-            func.avg(
-                FlightOpsMonthly.days_available
-                / func.nullif(
-                    FlightOpsMonthly.days_available + FlightOpsMonthly.days_unavailable, 0
-                )
-            )
-        ).where(FlightOpsMonthly.aircraft_ref_id == aircraft_ref_id)
+        select(func.avg(ratio)).where(FlightOpsMonthly.aircraft_ref_id == aircraft_ref_id)
     ).scalar()
     return round(float(row), 4) if row is not None else None
 

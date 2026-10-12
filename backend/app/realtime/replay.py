@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from ..core.config import Settings, get_settings
 from ..core.logging import Timer
-from ..db.session import get_sessionmaker
+from ..db.session import get_replay_sessionmaker
 from ..domain.health import EmaState, engine_health_from_rul
 from ..domain.rules import do_by_cycle, risk_level
 from ..ml import inference
@@ -193,9 +193,10 @@ class ReplayEngine:
         none of which any reader needs to see individually. A tick is only meaningful as
         a whole -- a partially-applied tick advances some engines and not others -- so
         committing it atomically is both faster and more correct than the per-aircraft
-        commits it replaces.
+        commits it replaces. Uses the dedicated replay pool (docs/16 Phase 2.2), so
+        the 8 serialised round trips never occupy the request pool.
         """
-        session = get_sessionmaker(self.settings)
+        session = get_replay_sessionmaker(self.settings)
         now = datetime.now(UTC)
         with session() as db:
             engine_part = telemetry.engine_part(db)

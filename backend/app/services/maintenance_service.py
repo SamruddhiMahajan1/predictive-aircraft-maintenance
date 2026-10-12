@@ -46,6 +46,20 @@ VALID_TRANSITIONS = {
 
 
 def _next_reference(db: Session) -> str:
+    """Next WO reference via SEQUENCE with count()+1 fallback (docs/16 M3).
+
+    count(*)+1 collides under concurrent creates → IntegrityError → bare 500.
+    `wo_ref_seq` (migration) makes allocation atomic; SQLite/test sessions with
+    no sequence keep the old behaviour so unit tests stay backend-agnostic.
+    """
+    from sqlalchemy import text
+
+    try:
+        nxt = db.execute(text("SELECT nextval('wo_ref_seq')")).scalar()
+        if nxt is not None:
+            return f"WO-{int(nxt):04d}"
+    except Exception:
+        db.rollback()
     count = db.query(WorkOrder).count()
     return f"WO-{count + 1:04d}"
 
@@ -182,19 +196,41 @@ def list_work_orders(
     limit: int,
     offset: int,
 ) -> dict:
-    work_orders = db.query(WorkOrder).offset(offset).limit(limit).all()
-    items = []
-    for wo in work_orders:
-        if status and wo.status != status:
-            continue
-        aircraft = repo.get_aircraft(db, wo.aircraft_id)
-        if aircraft_id and wo.aircraft_id != aircraft_id:
-            continue
-        part = repo.get_part_by_id(db, wo.part_id)
-        if part_code and part.code != part_code:
-            continue
-        items.append(_wo_out(wo, aircraft.code, part.code))
-    return {"items": items, "total": db.query(WorkOrder).count()}
+    """Phase 3 (docs/16 M3): filter in SQL before LIMIT, deterministic ORDER BY,
+    capped OFFSET, single joined query — the old version queried LIMIT first,
+    filtered in Python (wrong pages past 200 rows), had no ORDER BY and issued
+    2 N+1 queries per row.
+    """
+    from sqlalchemy import func, select
+
+    from ..models.fleet import Aircraft, Part
+
+    limit = max(1, min(limit, 200))
+    offset = max(0, min(offset, 10000))
+    stmt = (
+        select(WorkOrder, Aircraft.code, Part.code)
+        .join(Aircraft, Aircraft.id == WorkOrder.aircraft_id)
+        .join(Part, Part.id == WorkOrder.part_id)
+    )
+    count_stmt = select(func.count()).select_from(WorkOrder)
+    if status:
+        stmt = stmt.where(WorkOrder.status == status)
+        count_stmt = count_stmt.where(WorkOrder.status == status)
+    if aircraft_id:
+        stmt = stmt.where(WorkOrder.aircraft_id == aircraft_id)
+        count_stmt = count_stmt.where(WorkOrder.aircraft_id == aircraft_id)
+    if part_code:
+        stmt = stmt.where(Part.code == part_code)
+        count_stmt = count_stmt.join(Part, Part.id == WorkOrder.part_id).where(
+            Part.code == part_code
+        )
+    stmt = stmt.order_by(WorkOrder.id.desc()).offset(offset).limit(limit)
+    rows = db.execute(stmt).all()
+    total = db.scalar(count_stmt) or 0
+    return {
+        "items": [_wo_out(wo, acode, pcode) for wo, acode, pcode in rows],
+        "total": total,
+    }
 
 
 # ── 36 / 37 ────────────────────────────────────────────────────────────────────
@@ -436,21 +472,36 @@ def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
 def list_alerts(
     db: Session, acknowledged: bool | None, level: str | None, aircraft_code: str | None, limit: int
 ) -> dict:
-    rows = repo.list_alerts(db, acknowledged, limit * 2)
-    items = []
-    for alert in rows:
-        aircraft = repo.get_aircraft(db, alert.aircraft_id)
-        part = repo.get_part_by_id(db, alert.part_id)
-        if level and alert.level != level:
-            continue
-        if aircraft_code and aircraft.code != aircraft_code:
-            continue
-        items.append(
+    """Phase 3 (docs/16 M3): all filters in SQL, one joined query, deterministic
+    ORDER BY — the old version fetched limit*2 rows then filtered/broke in
+    Python with 2 N+1 lookups per row.
+    """
+    from sqlalchemy import select
+
+    from ..models.alert import Alert
+    from ..models.fleet import Aircraft, Part
+
+    limit = max(1, min(limit, 200))
+    stmt = (
+        select(Alert, Aircraft.code, Aircraft.id, Part.code)
+        .join(Aircraft, Aircraft.id == Alert.aircraft_id)
+        .join(Part, Part.id == Alert.part_id)
+    )
+    if acknowledged is not None:
+        stmt = stmt.where(Alert.acknowledged.is_(acknowledged))
+    if level:
+        stmt = stmt.where(Alert.level == level)
+    if aircraft_code:
+        stmt = stmt.where(Aircraft.code == aircraft_code)
+    stmt = stmt.order_by(Alert.created_at.desc(), Alert.id.desc()).limit(limit)
+    rows = db.execute(stmt).all()
+    return {
+        "items": [
             {
                 "id": alert.id,
-                "aircraft": aircraft.code,
-                "aircraft_id": aircraft.id,
-                "part": part.code,
+                "aircraft": acode,
+                "aircraft_id": aid,
+                "part": pcode,
                 "level": alert.level,
                 "message": alert.message,
                 "health": float(alert.health) if alert.health is not None else None,
@@ -460,10 +511,10 @@ def list_alerts(
                 "acknowledged_at": alert.acked_at,
                 "created_at": alert.created_at,
             }
-        )
-        if len(items) >= limit:
-            break
-    return {"items": items, "unacknowledged_count": repo.unacked_count(db)}
+            for alert, acode, aid, pcode in rows
+        ],
+        "unacknowledged_count": repo.unacked_count(db),
+    }
 
 
 def ack_alert(db: Session, alert_id: int, note: str | None) -> dict:

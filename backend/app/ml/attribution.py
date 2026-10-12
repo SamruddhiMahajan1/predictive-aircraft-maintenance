@@ -6,7 +6,7 @@ from typing import Any
 
 from ..domain.rules import COMPONENT_SENSOR_MAP
 from . import model_store
-from .features import SENSORS, regime_block, robust_z
+from .features import POOLED_SENSORS, regime_block, robust_z
 
 GAIN_WEIGHT = 0.6
 Z_WEIGHT = 0.4
@@ -53,7 +53,9 @@ def z_scores(
     if sensors.get("s6") is None and s6_median is not None:
         sensors["s6"] = s6_median  # same imputation build_matrix applies
     out: dict[str, float] = {}
-    for sensor in SENSORS:
+    # Pooled 17: s10/s16 score only where the block describes them (FD002+);
+    # on FD001 they are skipped here exactly as the matrix zeroes them there.
+    for sensor in POOLED_SENSORS:
         stat = baseline.get(sensor)
         value = sensors.get(sensor)
         if not stat or value is None:

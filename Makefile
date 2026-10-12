@@ -15,7 +15,7 @@ VENV          ?= backend/.venv
 BIN           := $(VENV)/bin
 
 .PHONY: help help-local up down restart logs ps rebuild migrate seed fresh setup fetch-data \
-        fetch-data-all \
+        fetch-data-all train train-fd001 train-all ml-validate ml-dry-run \
         dev-backend dev-frontend lint typecheck test test-unit test-web build-api db-test db-test-down \
         fetch-model \
         db-dump db-restore clean distclean
@@ -74,6 +74,27 @@ fetch-data-all: ## Download all four C-MAPSS subsets (FD001-FD004, ~43 MB) for t
 
 fetch-model: ## Download the trained boosters into backend/data/ml/$(FDT_ML_VARIANT)
 	@$(COMPOSE) --profile bootstrap run --rm model-fetch
+
+train: ## Train with ml/configs/all.toml (installs ml first, docs/16 §10.2)
+	@$(PY) -m pip install -e ml
+	@$(PY) -m rul.train --config all.toml 2>/dev/null || $(PY) -m rul train --config all.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
+
+train-fd001: ## Fast FD001-only training
+	@$(PY) -m pip install -e ml
+	@$(PY) -m rul train --config fd001.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
+
+train-all: ## Full pooled training (FD001-FD004)
+	@$(PY) -m pip install -e ml
+	@$(PY) -m rul train --config all.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs
+
+ml-validate: ## Validate staged C-MAPSS files + contract parity fixture
+	@$(PY) -m pip install -e ml
+	@$(PY) -m rul validate --fixture
+	@$(PY) -m pytest ml/tests -q
+
+ml-dry-run: ## Prove the pipeline executes on 2 engines without writing artifacts
+	@$(PY) -m pip install -e ml
+	@$(PY) -m rul train --config fd001.toml --cmapss-dir backend/data/cmapss --runs-dir ml/runs --dry-run
 
 migrate: ## Apply database migrations
 	@$(COMPOSE) run --rm --entrypoint alembic api upgrade head

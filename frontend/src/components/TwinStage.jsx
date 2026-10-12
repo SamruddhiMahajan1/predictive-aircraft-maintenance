@@ -41,7 +41,9 @@ export default function TwinStage() {
     };
   }, []);
 
-  const e = fleet[app.sel];
+  const e = fleet[app.sel] ?? fleet[0];
+  const part = app.cur ? PARTS[app.cur] : null;
+  const title = e ? (app.tgt && part ? part.name + ' - ' + e.id : e.id) : 'Fleet digital twin';
   return (
     <section className="hero" id="twin">
       <div id="stage" ref={stageRef}>
@@ -57,7 +59,7 @@ export default function TwinStage() {
           ))}
         </div>
         <div id="ttl">
-          <b id="t1">{app.tgt ? PARTS[app.cur].name + ' - ' + e.id : e.id}</b>
+          <b id="t1">{title}</b>
           <span id="t2">{app.status}</span>
         </div>
       </div>

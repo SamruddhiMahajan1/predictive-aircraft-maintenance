@@ -31,9 +31,11 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 from rul.contract import (
+    EXTRA_SENSORS,
     FEATURE_ORDER,
     MAX_WINDOW,
     MIN_WINDOW,
+    POOLED_SENSORS,
     REGIME_COLUMN,
     ROLLING_SENSORS,
     ROLLING_SUFFIXES,
@@ -43,6 +45,7 @@ from rul.contract import (
     SPEC_SENSORS,
     ContractError,
     build_matrix,
+    build_matrix_per_row_regime,
     classify_regime,
     contract_sensors,
     impute_s6,
@@ -110,6 +113,35 @@ def build_window(
         raise _ContractFailureError(str(exc)) from exc
 
 
+def build_window_per_row_regime(
+    window: list[dict[str, Any]],
+    *,
+    s6_median: float,
+    stats: dict[str, Any],
+    subset: str | None,
+    centroids: Any | None,
+    regime_offset: int = 0,
+    feature_order: Sequence[str] = FEATURE_ORDER,
+    regime_column: str = REGIME_COLUMN,
+    missing_sensor_values: dict[str, float] | None = None,
+) -> tuple[list[list[float]], set[str], list[int]]:
+    """Per-row regime matrix (docs/16 §10.8.3). See `build_matrix_per_row_regime`."""
+    try:
+        return build_matrix_per_row_regime(
+            window,
+            s6_median=s6_median,
+            stats=stats,
+            subset=subset,
+            centroids=centroids,
+            regime_offset=regime_offset,
+            feature_order=feature_order,
+            regime_column=regime_column,
+            missing_sensor_values=missing_sensor_values,
+        )
+    except ContractError as exc:
+        raise _ContractFailureError(str(exc)) from exc
+
+
 def regime_z_scorer(
     stats: dict[str, Any],
     regime: int = 0,
@@ -134,6 +166,8 @@ def regime_z_scorer(
 __all__ = [
     "SPEC_SENSORS",
     "SENSORS",
+    "EXTRA_SENSORS",
+    "POOLED_SENSORS",
     "ROLLING_SENSORS",
     "ROLLING_WINDOW",
     "ROLLING_SUFFIXES",
@@ -145,6 +179,7 @@ __all__ = [
     "contract_sensors",
     "impute_s6",
     "build_window",
+    "build_window_per_row_regime",
     "regime_z_scorer",
     "regime_block",
     "classify_regime",

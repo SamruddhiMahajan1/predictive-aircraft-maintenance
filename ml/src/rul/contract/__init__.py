@@ -12,12 +12,14 @@ two drifted apart in the first place.
 from __future__ import annotations
 
 from .errors import ContractError
-from .matrix import ZScorer, build_matrix, contract_widths, impute_s6
+from .matrix import ZScorer, build_matrix, build_matrix_per_row_regime, contract_widths, impute_s6
 from .order import (
     DEFAULT_ROLLING_WINDOW,
+    EXTRA_SENSORS,
     FEATURE_ORDER,
     MAX_WINDOW,
     MIN_WINDOW,
+    POOLED_SENSORS,
     REGIME_COLUMN,
     ROLLING_DDOF,
     ROLLING_SENSORS,
@@ -34,6 +36,8 @@ from .zscore import EPS_MAD, regime_z_scorer, robust_z
 __all__ = [
     "ContractError",
     "EPS_MAD",
+    "EXTRA_SENSORS",
+    "POOLED_SENSORS",
     "DEFAULT_ROLLING_WINDOW",
     "FEATURE_ORDER",
     "MAX_WINDOW",
@@ -48,6 +52,7 @@ __all__ = [
     "SPEC_SENSORS",
     "ZScorer",
     "build_matrix",
+    "build_matrix_per_row_regime",
     "classify_regime",
     "contract_sensors",
     "contract_widths",

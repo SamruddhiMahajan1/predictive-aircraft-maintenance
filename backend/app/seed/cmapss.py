@@ -31,11 +31,16 @@ SENSOR_KEYS = {
     "sensor_7": "s7",
     "sensor_8": "s8",
     "sensor_9": "s9",
+    # s10/s16 are constant in FD001 but live in FD002/FD003/FD004, and the pooled
+    # contract scores them there. Dropping them at read time fed 0.0-raw into the
+    # z-scorer for exactly the subsets where training saw real values.
+    "sensor_10": "s10",
     "sensor_11": "s11",
     "sensor_12": "s12",
     "sensor_13": "s13",
     "sensor_14": "s14",
     "sensor_15": "s15",
+    "sensor_16": "s16",
     "sensor_17": "s17",
     "sensor_20": "s20",
     "sensor_21": "s21",

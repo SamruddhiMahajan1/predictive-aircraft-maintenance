@@ -33,10 +33,21 @@ def test_a_large_relative_deviation_is_reported_at_full_magnitude():
     assert abs(z) > 10.0, "the defect presented as a pinned zero, not a small value"
 
 
-def test_a_genuinely_zero_mad_still_floors():
-    """s6 is constant in FD001; dividing by zero must not be attempted."""
+def test_a_genuinely_zero_mad_floors_the_divisor_not_the_result():
+    """s6 is constant in FD001; dividing by zero must not be attempted -- but the
+    answer is still the quotient, not a substituted 0.0.
+
+    Training divided by `max(mad, 1e-6)`, and the shipped booster proves it: `s10`
+    splits at 0/30000, `s16` at 10000, `s6` at -70000 -- exactly `(v - median)/1e-6`
+    for the observed deviations on zero-MAD sensors. Substituting 0.0 (which an
+    earlier revision did) feeds "perfectly healthy" where training saw ±30000 and
+    re-breaks FD002/FD003/FD004, where s10/s16 vary across engine life while their
+    healthy-window MAD is 0. A value equal to the median still scores 0.0.
+    """
     assert robust_z(21.61, FD001_S6["median"], FD001_S6["mad"]) == 0.0
-    assert robust_z(999.0, FD001_S6["median"], FD001_S6["mad"]) == 0.0
+    z = robust_z(999.0, FD001_S6["median"], FD001_S6["mad"])
+    assert z == pytest.approx((999.0 - 21.61) / EPS_MAD)
+    assert z != 0.0 and z == z  # finite, not a ZeroDivisionError nor NaN
 
 
 def test_the_floor_is_absolute_never_proportional_to_the_median():

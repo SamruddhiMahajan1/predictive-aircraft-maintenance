@@ -34,6 +34,7 @@ from .order import (
     SETTINGS_COLUMNS,
     contract_sensors,
 )
+from .regimes import classify_regime
 
 ZScorer = Callable[[dict[str, float]], dict[str, float]]
 
@@ -169,6 +170,113 @@ def _window_for(name: str) -> int:
     return int(digits) if digits else DEFAULT_ROLLING_WINDOW
 
 
+def build_matrix_per_row_regime(
+    window: list[dict[str, Any]],
+    *,
+    s6_median: float,
+    stats: dict[str, Any],
+    subset: str | None,
+    centroids: Any | None,
+    regime_offset: int = 0,
+    feature_order: Sequence[str] = FEATURE_ORDER,
+    regime_column: str = REGIME_COLUMN,
+    missing_sensor_values: dict[str, float] | None = None,
+    eps: float = 1e-6,
+) -> tuple[list[list[float]], set[str], list[int]]:
+    """Per-row regime z-scoring (docs/16 §4 caveat 2, §10.8.3).
+
+    The notebook z-scored EACH row against ITS OWN regime baseline; the serving
+    path classified ONE regime from the LATEST cycle and applied it to EVERY row
+    (features.py:157-158). Invisible on FD001 (one regime), wrong on all six-regime
+    subsets (FD002 RMSE 28.3 / FD004 30.2 — broken, not hard).
+
+    Returns (matrix, imputed, regimes): regimes[i] is the local regime id for
+    window row i, so callers can report the latest without re-classifying.
+    Scorers are cached per regime — at most 6 baselines per window.
+    """
+    from .zscore import regime_z_scorer
+
+    if len(window) < MIN_WINDOW:
+        raise ContractError(
+            f"window must contain at least {MIN_WINDOW} cycles, got {len(window)}"
+        )
+    window = window[-MAX_WINDOW:]
+    needed = contract_sensors(feature_order)
+    imputed: set[str] = set()
+    regimes: list[int] = []
+    scorer_cache: dict[int, ZScorer | None] = {}
+    series: list[dict[str, float]] = []
+
+    def _scorer_for(regime: int) -> ZScorer | None:
+        if regime not in scorer_cache:
+            try:
+                scorer_cache[regime] = regime_z_scorer(
+                    stats, regime, subset=subset, eps=eps
+                )
+            except ContractError:
+                scorer_cache[regime] = None
+        return scorer_cache[regime]
+
+    for row in window:
+        sensors, s6_was_imputed = impute_s6(row, s6_median)
+        if s6_was_imputed:
+            imputed.add("s6")
+        values: dict[str, float] = {}
+        for sensor in needed:
+            raw = sensors.get(sensor)
+            if raw is None:
+                values[sensor] = float((missing_sensor_values or {}).get(sensor, 0.0))
+                imputed.add(sensor)
+            else:
+                values[sensor] = float(raw)
+        settings = row.get("settings") or {}
+        values["op1"] = float(settings.get("setting_1", settings.get("op1", 0.0)))
+        values["op2"] = float(settings.get("setting_2", settings.get("op2", 0.0)))
+        # Per-row regime: each cycle scored against its own baseline.
+        regime = classify_regime(settings, centroids)
+        regimes.append(regime)
+        scorer = _scorer_for(regime)
+        if scorer is not None:
+            values.update(scorer(values))
+        if regime_column in feature_order:
+            values[regime_column] = float(regime + regime_offset)
+        series.append(values)
+
+    columns = {
+        name: [r[name] for r in series]
+        for name in feature_order
+        if name in series[0]
+    }
+    matrix: list[list[float]] = []
+    for i in range(len(series)):
+        row_out: list[float] = []
+        for name in feature_order:
+            if "_roll" in name:
+                sensor, rest = name.split("_roll", 1)
+                is_mean = rest.startswith("mean")
+                width = _window_for(name)
+                start = max(0, i - width + 1)
+                chunk = columns[sensor][start : i + 1]
+                if is_mean:
+                    row_out.append(sum(chunk) / len(chunk))
+                else:
+                    if len(chunk) < 2:
+                        row_out.append(0.0)
+                    else:
+                        m = sum(chunk) / len(chunk)
+                        denom = len(chunk) - ROLLING_DDOF
+                        var = sum((v - m) ** 2 for v in chunk) / denom
+                        row_out.append(var**0.5)
+            else:
+                row_out.append(columns[name][i])
+        matrix.append(row_out)
+
+    assert len(matrix[0]) == len(feature_order), (
+        f"built {len(matrix[0])} columns, contract declares {len(feature_order)}"
+    )
+    return matrix, imputed, regimes
+
+
 def contract_widths(feature_order: Sequence[str]) -> dict[str, int]:
     """Map each derived column name to the window it uses."""
     return {n: _window_for(n) for n in feature_order if "_roll" in n}
@@ -176,6 +284,7 @@ def contract_widths(feature_order: Sequence[str]) -> dict[str, int]:
 
 __all__ = [
     "build_matrix",
+    "build_matrix_per_row_regime",
     "impute_s6",
     "contract_widths",
     "ZScorer",

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from typing import Annotated
+
+from fastapi import APIRouter, Query, Request
 from sqlalchemy import text
 
 from ...db.session import get_sessionmaker
@@ -145,7 +147,7 @@ async def demo_tick():
 def audit_trail(
     db: DbSession,
     entity: str | None = None,
-    limit: int = 100,
+    limit: Annotated[int, Query(ge=1, le=1000)] = 100,
 ):
     from ...models.auth import AuditLog
 

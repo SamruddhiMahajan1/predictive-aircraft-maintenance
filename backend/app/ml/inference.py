@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import time
+from contextlib import suppress
 from typing import Any
 
 from ..core.config import Settings, get_settings
 from ..domain.rules import COMPONENT_SENSOR_MAP, RUL_CAP, cap_rul, engine_spare
 from . import fallback, model_store
 from .attribution import deviation_scores, top_sensors, z_scores
-from .features import FEATURE_ORDER, ContractError, build_window
+from .conformal import COVERAGE, half_width
+from .conformal import interval as conformal_interval
+from .features import FEATURE_ORDER, ContractError, build_window, build_window_per_row_regime
 
 # Component health is anchored at BOTH ends, measured on real FD001 telemetry rather
 # than assumed. The previous single divisor (3.0) was wrong: healthy engines already
@@ -71,19 +74,42 @@ def predict(
 
     # Request validation happens second: a window that is too short is the caller's
     # problem, and reporting it as such matters more than checking it first.
+    # Phase 5 (docs/16 §10.8.3): per-row regime z-scoring. The notebook scored EACH
+    # row against ITS OWN regime baseline; the old path scored every row against
+    # the LATEST cycle's regime — invisible on FD001 (1 regime), RMSE 28-30 on
+    # FD002/FD004 (6 regimes). Prefer the per-row path whenever baselines are
+    # available; it reduces to the old behaviour on single-regime data.
+    use_per_row = bool(getattr(h, "stats", None))
     try:
-        matrix, imputed = build_window(
-            window,
-            s6_median=s.s6_median_fd001,
-            feature_order=h.feature_order or FEATURE_ORDER,
-            sensors_to_z=h.z_scorer(local_regime, subset),
-            regime_global=regime_global,
-            regime_column=h.regime_column,
-            # s10/s16 are constant in FD001 so FD001 telemetry never carries them; the
-            # pooled booster still expects both columns, so they are pinned to the
-            # healthy median instead of left out (which misaligns the matrix).
-            missing_sensor_values=h.missing_sensor_defaults(subset),
-        )
+        if use_per_row:
+            matrix, imputed, regimes = build_window_per_row_regime(
+                window,
+                s6_median=s.s6_median_fd001,
+                stats=h.stats,
+                subset=subset,
+                centroids=h.centroids_for(subset),
+                regime_offset=h.regime_offset(subset),
+                feature_order=h.feature_order or FEATURE_ORDER,
+                regime_column=h.regime_column,
+                missing_sensor_values=h.missing_sensor_defaults(subset),
+            )
+            if regimes:
+                local_regime = regimes[-1]
+                regime_global = local_regime + h.regime_offset(subset)
+        else:
+            matrix, imputed = build_window(
+                window,
+                s6_median=s.s6_median_fd001,
+                feature_order=h.feature_order or FEATURE_ORDER,
+                sensors_to_z=h.z_scorer(local_regime, subset),
+                regime_global=regime_global,
+                regime_column=h.regime_column,
+                # Sensors the subset's baselines omit (FD001's s10/s16, constant there)
+                # are pinned to the healthy median instead of left out, which would
+                # misalign the positional matrix. Subsets that measure them carry raw
+                # values straight through from the window rows.
+                missing_sensor_values=h.missing_sensor_defaults(subset),
+            )
     except ContractError as exc:
         # A rejected window (too short, or no baseline block for the subset) is the
         # caller's problem and is reported as such. Anything else is a broken baseline
@@ -105,6 +131,13 @@ def predict(
         weakest, weakest_health = engine_spare(components)
         top = top_sensors(z, h=h)
         deviation = deviation_scores(z)
+        # Phase 6.1/6.2: conformal interval + drift-sentinel sampling. record_raw
+        # feeds describe()'s drift check; the interval makes the 3.9% threshold
+        # misclassification visible instead of hiding it behind an integer.
+        with suppress(Exception):
+            h.record_raw(window[-1].get("sensors") or {})
+        half = half_width(mae=h.mae)
+        rul_interval = conformal_interval(rul, half, cap=s.rul_cap)
     except Exception as exc:  # noqa: BLE001
         model_store.log.warning("inference failed (%s); using fallback", exc)
         return _fallback_result(cycle, started, fallback_on=f"inference_error:{exc}")
@@ -115,6 +148,9 @@ def predict(
         "rul": rul,
         "rul_raw": round(rul_raw, 2),
         "rul_capped": rul_raw > s.rul_cap,
+        "rul_interval": rul_interval,
+        "coverage": COVERAGE,
+        "interval_calibrated": False,
         "component_health": components,
         "weakest_component": weakest,
         "weakest_component_health": weakest_health,

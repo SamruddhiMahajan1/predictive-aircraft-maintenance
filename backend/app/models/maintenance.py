@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -139,12 +139,13 @@ class WorkOrder(Base):
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
-        default=lambda: datetime.utcnow(),
-        onupdate=lambda: datetime.utcnow(),
+        default=lambda: datetime.now(UTC),
+        onupdate=lambda: datetime.now(UTC),
+        server_default="now()",
     )
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -174,7 +175,7 @@ class AgencyBooking(Base):
     work_order_id: Mapped[int | None] = mapped_column(
         ForeignKey("work_order.id", ondelete="SET NULL")
     )
-    booked_on: Mapped[date] = mapped_column(Date, default=lambda: datetime.utcnow().date())
+    booked_on: Mapped[date] = mapped_column(Date, default=lambda: datetime.now(UTC).date())
     slot_days: Mapped[int] = mapped_column(Integer)
     turnaround_days: Mapped[int] = mapped_column(Integer)
     lead_time_days: Mapped[int] = mapped_column(Integer, default=0)
@@ -182,7 +183,7 @@ class AgencyBooking(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_by: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
 
     agency: Mapped[Agency] = relationship(back_populates="bookings")
@@ -210,7 +211,7 @@ class StockMovement(Base):
     user_id: Mapped[int | None] = mapped_column(Integer)
     note: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.utcnow()
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), server_default="now()"
     )
 
     spare: Mapped[Spare] = relationship(back_populates="movements")
