@@ -1,8 +1,12 @@
 # Pinned training/runtime deps (docs/16 §10.6). Reproduced from the environment that
 # produced the current artifacts; `pip install -r ml/requirements.lock` reproduces it.
 # Regenerate: pip freeze | grep -Ei 'xgboost|numpy|scikit-learn|scipy|matplotlib'
-numpy==2.5.3
+# NOTE: CI and .python-version pin Python 3.11, so every pin here must ship cp311
+# wheels. numpy>=2.5 and xgboost>=3.3 require Python >=3.12 and break `pip install`
+# on 3.11 — keep numpy on the 2.4.x line and xgboost <=3.2.x until the repo moves
+# to a newer interpreter.
+numpy==2.4.6
 scipy==1.16.3
 scikit-learn==1.7.2
-xgboost==3.4.1
+xgboost==3.2.0
 matplotlib==3.10.7

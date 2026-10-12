@@ -17,6 +17,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from ..core.logging import request_id_var
+from .session import Base
 
 
 def jsonable(value: Any) -> Any:
@@ -96,6 +97,9 @@ class UnitOfWork:
             )
         )
 
-    def lock(self, model: type, pk: Any) -> Any | None:
+    def lock(self, model: type[Base], pk: Any) -> Any | None:
         """SELECT ... FOR UPDATE — used by spare reserve and agency booking."""
-        return self.session.query(model).filter(model.id == pk).with_for_update().one_or_none()
+        # getattr, not model.id: `type[Base]` has no `id` attribute as far as the
+        # type checker is concerned, but every mapped model passed here does.
+        id_attr = getattr(model, "id")  # noqa: B009 — dynamic access is the point
+        return self.session.query(model).filter(id_attr == pk).with_for_update().one_or_none()

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Query, status
 
@@ -38,7 +38,7 @@ def list_work_orders(
     part: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
-):
+) -> dict[str, Any]:
     aircraft_id = None
     if aircraft:
         model = repo.get_aircraft(db, aircraft)
@@ -47,12 +47,14 @@ def list_work_orders(
 
 
 @router.post("/work-orders", response_model=WorkOrderOut, status_code=status.HTTP_201_CREATED)
-def create_work_order(db: DbSession, payload: WorkOrderCreate):
+def create_work_order(db: DbSession, payload: WorkOrderCreate) -> dict[str, Any]:
     return svc.publish_events(svc.create_work_order(db, payload.model_dump()))
 
 
 @router.patch("/work-orders/{work_order_id}", response_model=WorkOrderOut)
-def update_work_order(db: DbSession, work_order_id: int, payload: WorkOrderUpdate):
+def update_work_order(
+    db: DbSession, work_order_id: int, payload: WorkOrderUpdate
+) -> dict[str, Any]:
     return svc.publish_events(
         svc.update_work_order(db, work_order_id, payload.model_dump(exclude_none=True))
     )
@@ -60,23 +62,23 @@ def update_work_order(db: DbSession, work_order_id: int, payload: WorkOrderUpdat
 
 # ── spares ─────────────────────────────────────────────────────────────────────
 @router.get("/spares", response_model=SpareList)
-def list_spares(db: DbSession):
+def list_spares(db: DbSession) -> dict[str, Any]:
     return svc.list_spares(db)
 
 
 @router.patch("/spares/{part_ref_id}", response_model=SpareOut)
-def update_spare(db: DbSession, part_ref_id: str, payload: SpareUpdate):
+def update_spare(db: DbSession, part_ref_id: str, payload: SpareUpdate) -> dict[str, Any]:
     return svc.publish_events(svc.update_spare(db, part_ref_id, payload.model_dump()))
 
 
 @router.post("/spares/{part_ref_id}/reserve", response_model=ReserveResponse)
-def reserve_spare(db: DbSession, part_ref_id: str, payload: ReserveRequest):
+def reserve_spare(db: DbSession, part_ref_id: str, payload: ReserveRequest) -> dict[str, Any]:
     return svc.publish_events(svc.reserve_spare(db, part_ref_id, payload.work_order_id))
 
 
 # ── agencies ───────────────────────────────────────────────────────────────────
 @router.get("/agencies", response_model=AgencyList)
-def list_agencies(db: DbSession):
+def list_agencies(db: DbSession) -> dict[str, Any]:
     return svc.list_agencies(db)
 
 
@@ -85,7 +87,7 @@ def list_agencies(db: DbSession):
     response_model=BookingResponse,
     status_code=status.HTTP_201_CREATED,
 )
-def create_booking(db: DbSession, agency_id: int, payload: BookingRequest):
+def create_booking(db: DbSession, agency_id: int, payload: BookingRequest) -> dict[str, Any]:
     return svc.publish_events(svc.create_booking(db, agency_id, payload.model_dump()))
 
 
@@ -97,10 +99,12 @@ def list_alerts(
     level: str | None = None,
     aircraft: str | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
-):
+) -> dict[str, Any]:
     return svc.list_alerts(db, acknowledged, level, aircraft, limit)
 
 
 @router.post("/alerts/{alert_id}/ack", response_model=AckResponse)
-def ack_alert(db: DbSession, alert_id: int, payload: AckRequest = Body(default=AckRequest())):
+def ack_alert(
+    db: DbSession, alert_id: int, payload: AckRequest = Body(default=AckRequest())
+) -> dict[str, Any]:
     return svc.publish_events(svc.ack_alert(db, alert_id, payload.note))

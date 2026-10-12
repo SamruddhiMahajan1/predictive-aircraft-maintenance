@@ -6,6 +6,8 @@ tests/performance/test_budgets.py (docs/11 §5.3).
 
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import Numeric, cast, func, select
 from sqlalchemy.orm import Session, selectinload
 
@@ -173,7 +175,7 @@ def engine_history(
     return [(snapshots[c], preds.get(c), comps.get(c)) for c in sorted(snapshots)]
 
 
-def fleet_snapshots(db: Session, window: int) -> dict[int, list[dict]]:
+def fleet_snapshots(db: Session, window: int) -> dict[int, list[dict[str, Any]]]:
     """Last `window` engine snapshots per aircraft, in one query.
 
     Windowed in SQL (ROW_NUMBER per aircraft), not sliced in Python: the old
@@ -202,7 +204,7 @@ def fleet_snapshots(db: Session, window: int) -> dict[int, list[dict]]:
         .where(ranked.c.rn <= window)
         .order_by(ranked.c.aircraft_id, ranked.c.cycle)
     ).all()
-    grouped: dict[int, list[dict]] = {}
+    grouped: dict[int, list[dict[str, Any]]] = {}
     for aircraft_id, cycle, health in rows:
         grouped.setdefault(aircraft_id, []).append({"cycle": cycle, "health": float(health)})
     return grouped

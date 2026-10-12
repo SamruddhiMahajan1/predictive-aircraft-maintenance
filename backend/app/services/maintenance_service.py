@@ -7,6 +7,7 @@ transaction (spec 51).
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -65,7 +66,7 @@ def _next_reference(db: Session) -> str:
 
 
 # ── 35 ─────────────────────────────────────────────────────────────────────────
-def create_work_order(db: Session, payload: dict) -> dict:
+def create_work_order(db: Session, payload: dict[str, Any]) -> dict[str, Any]:
     aircraft = repo.get_aircraft(db, payload["aircraft"])
     if aircraft is None:
         raise NotFoundError(f"Aircraft {payload['aircraft']!r} not found")
@@ -116,7 +117,7 @@ def create_work_order(db: Session, payload: dict) -> dict:
     return after | {"_event": work_order_created(bus_payload)}
 
 
-def update_work_order(db: Session, work_order_id: int, payload: dict) -> dict:
+def update_work_order(db: Session, work_order_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     work_order = db.get(WorkOrder, work_order_id)
     if work_order is None:
         raise NotFoundError(f"Work order {work_order_id} not found")
@@ -152,6 +153,8 @@ def update_work_order(db: Session, work_order_id: int, payload: dict) -> dict:
 
     aircraft = repo.get_aircraft(db, work_order.aircraft_id)
     part = repo.get_part_by_id(db, work_order.part_id)
+    if aircraft is None or part is None:
+        raise NotFoundError(f"Work order {work_order_id} references a missing aircraft or part")
     after = _wo_out(work_order, aircraft.code, part.code)
 
     with UnitOfWork(db) as uow:
@@ -168,7 +171,7 @@ def update_work_order(db: Session, work_order_id: int, payload: dict) -> dict:
     return after | {"_event": work_order_updated(after)}
 
 
-def _wo_out(wo: WorkOrder, aircraft_code: str, part_code: str) -> dict:
+def _wo_out(wo: WorkOrder, aircraft_code: str, part_code: str) -> dict[str, Any]:
     return {
         "id": wo.id,
         "reference": wo.reference,
@@ -195,7 +198,7 @@ def list_work_orders(
     part_code: str | None,
     limit: int,
     offset: int,
-) -> dict:
+) -> dict[str, Any]:
     """Phase 3 (docs/16 M3): filter in SQL before LIMIT, deterministic ORDER BY,
     capped OFFSET, single joined query — the old version queried LIMIT first,
     filtered in Python (wrong pages past 200 rows), had no ORDER BY and issued
@@ -234,7 +237,7 @@ def list_work_orders(
 
 
 # ── 36 / 37 ────────────────────────────────────────────────────────────────────
-def update_spare(db: Session, part_ref_id: str, payload: dict) -> dict:
+def update_spare(db: Session, part_ref_id: str, payload: dict[str, Any]) -> dict[str, Any]:
     with UnitOfWork(db) as uow:
         spare = (
             db.query(Spare).filter(Spare.part_ref_id == part_ref_id).with_for_update().one_or_none()
@@ -268,7 +271,7 @@ def update_spare(db: Session, part_ref_id: str, payload: dict) -> dict:
     return _spare_out(spare, None)
 
 
-def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> dict:
+def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> dict[str, Any]:
     """SELECT ... FOR UPDATE — prevents oversell under concurrent reservations."""
     with UnitOfWork(db) as uow:
         spare = (
@@ -327,7 +330,7 @@ def reserve_spare(db: Session, part_ref_id: str, work_order_id: int | None) -> d
     }
 
 
-def _spare_out(spare: Spare, last_movement) -> dict:
+def _spare_out(spare: Spare, last_movement: StockMovement | None) -> dict[str, Any]:
     return {
         "part_ref_id": spare.part_ref_id,
         "item_name": spare.item_name,
@@ -355,14 +358,14 @@ def _spare_out(spare: Spare, last_movement) -> dict:
     }
 
 
-def list_spares(db: Session) -> dict:
+def list_spares(db: Session) -> dict[str, Any]:
     movements = repo.last_stock_movements(db)  # one query, not forty
     items = [_spare_out(spare, movements.get(spare.id)) for spare in repo.list_spares(db)]
     return {"items": items, "total": len(items)}
 
 
 # ── 38 ─────────────────────────────────────────────────────────────────────────
-def list_agencies(db: Session) -> dict:
+def list_agencies(db: Session) -> dict[str, Any]:
     parts = repo.list_parts(db)
     items = []
     for agency in repo.list_agencies(db):
@@ -386,7 +389,7 @@ def list_agencies(db: Session) -> dict:
     return {"items": items}
 
 
-def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
+def create_booking(db: Session, agency_id: int, payload: dict[str, Any]) -> dict[str, Any]:
     aircraft = repo.get_aircraft(db, payload["aircraft"])
     if aircraft is None:
         raise NotFoundError(f"Aircraft {payload['aircraft']!r} not found")
@@ -471,7 +474,7 @@ def create_booking(db: Session, agency_id: int, payload: dict) -> dict:
 # ── 39 ─────────────────────────────────────────────────────────────────────────
 def list_alerts(
     db: Session, acknowledged: bool | None, level: str | None, aircraft_code: str | None, limit: int
-) -> dict:
+) -> dict[str, Any]:
     """Phase 3 (docs/16 M3): all filters in SQL, one joined query, deterministic
     ORDER BY — the old version fetched limit*2 rows then filtered/broke in
     Python with 2 N+1 lookups per row.
@@ -517,7 +520,7 @@ def list_alerts(
     }
 
 
-def ack_alert(db: Session, alert_id: int, note: str | None) -> dict:
+def ack_alert(db: Session, alert_id: int, note: str | None) -> dict[str, Any]:
     with UnitOfWork(db) as uow:
         alert = repo.get_alert(db, alert_id)
         if alert is None:
@@ -549,7 +552,7 @@ def ack_alert(db: Session, alert_id: int, note: str | None) -> dict:
     }
 
 
-def publish_events(result: dict) -> dict:
+def publish_events(result: dict[str, Any]) -> dict[str, Any]:
     """Strip the internal _event key and publish it on the bus."""
     event = result.pop("_event", None)
     if event is not None:

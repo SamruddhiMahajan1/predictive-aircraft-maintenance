@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
 from sqlalchemy import text
@@ -29,7 +29,7 @@ def _db_ok() -> bool:
 
 
 @router.get("/healthz", response_model=Healthz, include_in_schema=False)
-def healthz(request: Request):
+def healthz(request: Request) -> dict[str, Any]:
     """Liveness plus an honest statement of whether we are actually serving a model.
 
     A maintenance system that silently substitutes `rul = 125 - cycle` for a real
@@ -70,7 +70,7 @@ def healthz(request: Request):
 
 
 @router.get("/readyz", response_model=Readyz, include_in_schema=False)
-def readyz(db: DbSession):
+def readyz(db: DbSession) -> dict[str, Any]:
     """Ready means a real model is loaded. Serving the fallback is NOT ready.
 
     Set FDT_ML_FALLBACK=false to turn a missing artifact into a hard failure instead.
@@ -88,14 +88,14 @@ def readyz(db: DbSession):
 
 
 @router.post("/api/v1/seed/run", response_model=SeedResult)
-def run_seed():
+def run_seed() -> dict[str, Any]:
     from ...seed.run import run
 
     return {"status": "seeded", "counts": run()}
 
 
 @router.post("/api/v1/ml/reload")
-def ml_reload():
+def ml_reload() -> dict[str, Any]:
     """Re-read the ML artifact set from disk and warm it.
 
     The artifact directory is a bind mount, so a freshly staged booster is visible
@@ -120,24 +120,24 @@ def ml_reload():
 
 
 @router.get("/api/v1/demo/status", response_model=DemoStatus)
-def demo_status():
+def demo_status() -> dict[str, Any]:
     return replay.status()
 
 
 @router.post("/api/v1/demo/pause")
-def demo_pause():
+def demo_pause() -> dict[str, Any]:
     replay.pause()
     return replay.status()
 
 
 @router.post("/api/v1/demo/resume")
-def demo_resume():
+def demo_resume() -> dict[str, Any]:
     replay.resume()
     return replay.status()
 
 
 @router.post("/api/v1/demo/tick")
-async def demo_tick():
+async def demo_tick() -> dict[str, Any]:
     replay.pause()
     await replay.tick_once()
     return replay.status()
@@ -148,7 +148,7 @@ def audit_trail(
     db: DbSession,
     entity: str | None = None,
     limit: Annotated[int, Query(ge=1, le=1000)] = 100,
-):
+) -> dict[str, Any]:
     from ...models.auth import AuditLog
 
     stmt = db.query(AuditLog)

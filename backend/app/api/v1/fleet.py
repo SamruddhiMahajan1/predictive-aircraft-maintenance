@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Path, Query
 
@@ -29,7 +29,7 @@ PartPath = Annotated[str, Path(pattern="^(engine|radar|gear|hyd|fuel)$")]
     response_model=FleetSummary,
     summary="Mission Control cards and 60-cycle series",
 )
-def fleet_summary(db: DbSession, window: int = Query(60, ge=1, le=500)):
+def fleet_summary(db: DbSession, window: int = Query(60, ge=1, le=500)) -> dict[str, Any]:
     return svc.fleet_summary(db, window)
 
 
@@ -38,14 +38,14 @@ def list_aircraft(
     db: DbSession,
     risk: Annotated[Literal["healthy", "watch", "critical"] | None, Query()] = None,
     ready: Annotated[bool | None, Query()] = None,
-):
+) -> dict[str, Any]:
     return svc.list_aircraft(db, risk, ready)
 
 
 @router.get(
     "/aircraft/{code_or_id}", response_model=AircraftDetail, summary="Health of all five parts"
 )
-def aircraft_detail(db: DbSession, code_or_id: str):
+def aircraft_detail(db: DbSession, code_or_id: str) -> dict[str, Any]:
     return svc.aircraft_detail(db, code_or_id)
 
 
@@ -58,7 +58,7 @@ def engine_detail(
     db: DbSession,
     code_or_id: str,
     window: Annotated[int, Query(ge=1, le=500)] = 60,
-):
+) -> dict[str, Any]:
     return svc.engine_detail(db, code_or_id, window)
 
 
@@ -67,12 +67,12 @@ def engine_detail(
     response_model=PartDetail,
     summary="Part detail with spare, agency and back-in-service",
 )
-def part_detail(db: DbSession, code_or_id: str, part: PartPath):
+def part_detail(db: DbSession, code_or_id: str, part: PartPath) -> dict[str, Any]:
     return svc.part_detail(db, code_or_id, part)
 
 
 @router.get("/fleet/heatmap", response_model=Heatmap, summary="Aircraft x part health matrix")
-def heatmap(db: DbSession):
+def heatmap(db: DbSession) -> dict[str, Any]:
     return svc.fleet_heatmap(db)
 
 
@@ -84,12 +84,12 @@ def heatmap(db: DbSession):
 def actions(
     db: DbSession,
     limit: Annotated[int, Query(ge=1, le=50)] = 5,
-):
+) -> dict[str, Any]:
     return svc.fleet_actions(db, limit)
 
 
 @router.get(
     "/maintenance/schedule", response_model=ScheduleResponse, summary="One row per aircraft"
 )
-def schedule(db: DbSession):
+def schedule(db: DbSession) -> dict[str, Any]:
     return svc.maintenance_schedule(db)

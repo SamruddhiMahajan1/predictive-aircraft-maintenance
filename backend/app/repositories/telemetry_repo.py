@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -185,7 +185,7 @@ def write_engine_prediction(
     health: float,
     risk: str,
     cycle: int,
-    do_by: int,
+    do_by: int | None,
     source: str,
     cmapss_unit_id: int,
     telemetry_rows: list[dict[str, Any]],
@@ -244,7 +244,7 @@ def write_engine_prediction(
     )
 
     db.execute(
-        AircraftPart.__table__.update()
+        update(AircraftPart)
         .where(AircraftPart.aircraft_id == aircraft.id, AircraftPart.part_id == part.id)
         .values(
             health=health,
