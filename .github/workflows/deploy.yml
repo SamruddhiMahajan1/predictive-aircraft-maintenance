@@ -53,10 +53,10 @@ jobs:
         # Render's free tier builds take ~4-6 min; the generous ceiling covers
         # cold npm ci + pip install + alembic upgrade on a slow day.
         run: |
-          echo "Waiting for https://fleet-digital-twin.onrender.com to become healthy..."
+          echo "Waiting for https://fleet-digital-twin-wyz1.onrender.com to become healthy..."
           for i in $(seq 1 40); do
             status=$(curl -sf -o /dev/null -w "%{http_code}" \
-              https://fleet-digital-twin.onrender.com/healthz || echo "000")
+              https://fleet-digital-twin-wyz1.onrender.com/healthz || echo "000")
             echo "  attempt $i/40 — HTTP $status"
             if [ "$status" = "200" ]; then
               echo "✅ Service is healthy"
